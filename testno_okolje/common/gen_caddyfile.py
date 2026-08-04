@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Iz testnega nabora naredi server/sites.caddy"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "client"))
+
+from runner import scenario as scenario_mod  # noqa: E402
+
+HEADER = """# Nastalo iz {manifest} - ne urejaj rocno, popravi gen_caddyfile.py.
+# {count} domen na {ips} naslovih, nabor '{name}'.
+
+(site) {{
+	tls internal
+
+	log {{
+		output file {access_log} {{
+			mode 644
+		}}
+		format json
+	}}
+
+	header X-Domain {{host}}
+	header X-Sni {{http.request.tls.server_name}}
+
+	# {{host}} izbere korenski imenik.
+	root * {root}/{{host}}
+	file_server
+}}
+"""
+
+BLOCK = """
+{addresses} {{
+	bind {ip}
+	import site
+}}
+"""
+
+
+def render(scenario: scenario_mod.Scenario, root: str, access_log: str) -> str:
+    grouped = scenario.domains_by_ip()
+    text = HEADER.format(
+        manifest=f"testset/{scenario.run.subset}/sites.json",
+        count=len(scenario.sites),
+        ips=len(grouped),
+        name=scenario.run.subset,
+        root=root.rstrip("/"),
+        access_log=access_log,
+    )
+    for ip, domains in grouped.items():
+        addresses = ",\n".join(f"https://{domain}" for domain in domains)
+        text += BLOCK.format(addresses=addresses, ip=ip)
+    return text
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default=HERE / "scenario.yml")
+    parser.add_argument("--testset", default=HERE / "server" / "testset",
+                        help="nabor na gostitelju (za branje manifesta)")
+    parser.add_argument("--root", default="/opt/traffic/server/testset",
+                        help="nabor, kot ga vidi streznik")
+    parser.add_argument("--access-log", default="/opt/traffic/out/caddy-access.json")
+    parser.add_argument("-o", "--out", default=HERE / "server" / "sites.caddy")
+    args = parser.parse_args(argv)
+
+    scenario = scenario_mod.load(args.config, testset=args.testset)
+    root = f"{str(args.root).rstrip('/')}/{scenario.run.subset}"
+    Path(args.out).write_text(render(scenario, root, args.access_log), encoding="utf-8")
+
+    grouped = scenario.domains_by_ip()
+    print(f"{args.out}: {len(scenario.sites)} domen na {len(grouped)} naslovih")
+    for ip, domains in grouped.items():
+        print(f"  {ip}: {len(domains)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

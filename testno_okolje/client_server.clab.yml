@@ -1,13 +1,7 @@
-name: p4_baseline
+name: client_server
 
 topology:
   nodes:
-    switch:
-      kind: linux
-      image: p4-switch:latest
-      cpu: 2
-      memory: 2Gb
-
     client:
       kind: linux
       image: client:latest
@@ -21,7 +15,7 @@ topology:
         - ip addr add 10.0.1.11/24 dev eth1
         - ip addr add 10.0.1.12/24 dev eth1
         - ip link set dev eth1 up
-        - ip route replace default via 10.0.1.254 dev eth1
+        - ip route replace 10.0.2.0/24 dev eth1
 
     server:
       kind: linux
@@ -36,9 +30,7 @@ topology:
         - ip addr add 10.0.2.11/24 dev eth1
         - ip addr add 10.0.2.12/24 dev eth1
         - ip link set dev eth1 up
-        - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
-        - ip route replace default via 10.0.2.254 dev eth1
+        - ip route replace 10.0.1.0/24 dev eth1
 
   links:
-    - endpoints: ["switch:eth1", "client:eth1"]
-    - endpoints: ["switch:eth2", "server:eth1"]
+    - endpoints: ["client:eth1", "server:eth1"]

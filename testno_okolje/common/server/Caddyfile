@@ -1,0 +1,13 @@
+{
+	# Zamenjava nabora: caddy reload --config /opt/traffic/server/Caddyfile
+	admin localhost:2019
+
+	servers {
+		protocols h1 h2 h3
+	}
+
+	auto_https disable_redirects
+}
+
+# Bloke domen naredi gen_caddyfile.py.
+import {$SITES:/opt/traffic/server/sites.caddy}

@@ -1,4 +1,4 @@
-name: p4_baseline
+name: p4_controller_ids
 
 topology:
   nodes:
@@ -7,6 +7,9 @@ topology:
       image: p4-switch:latest
       cpu: 2
       memory: 2Gb
+      exec:
+        - ip addr add 10.20.1.2/30 dev eth5
+        - ip link set dev eth5 up
 
     client:
       kind: linux
@@ -39,6 +42,26 @@ topology:
         - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
         - ip route replace default via 10.0.2.254 dev eth1
 
+    ids:
+      kind: linux
+      image: ids:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:04:0a
+        - ip link set dev eth1 up
+
+    controller:
+      kind: linux
+      image: p4-controller:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip addr add 10.20.1.1/30 dev eth1
+        - ip link set dev eth1 up
+
   links:
     - endpoints: ["switch:eth1", "client:eth1"]
     - endpoints: ["switch:eth2", "server:eth1"]
+    - endpoints: ["switch:eth4", "ids:eth1"]
+    - endpoints: ["switch:eth5", "controller:eth1"]

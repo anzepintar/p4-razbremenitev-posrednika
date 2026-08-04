@@ -1,0 +1,9 @@
+testni_podatki/*
+!testni_podatki/vir.txt
+testno_okolje/common/pki/
+testno_okolje/common/out/
+testno_okolje/common/server/testset/
+testno_okolje/common/server/sites.caddy
+clab-*/
+__pycache__/
+*.pyc

@@ -1,4 +1,4 @@
-name: mitm_controller
+name: p4_controller_mitm
 
 topology:
   nodes:
@@ -53,14 +53,11 @@ topology:
         - common:/opt/traffic
       exec:
         - ip link set dev eth1 address 00:00:00:00:03:0a
-        - ip addr add 10.0.1.254/24 dev eth1
+        - ip addr add 10.0.3.10/24 dev eth1
         - ip link set dev eth1 up
-        - ip link set dev eth2 address 00:00:00:00:03:0b
-        - ip addr add 10.0.2.254/24 dev eth2
-        - ip link set dev eth2 up
-        - ip link set dev eth3 address 00:00:00:00:03:0c
-        - ip addr add 10.20.3.2/30 dev eth3
-        - ip link set dev eth3 up
+        - ip neigh replace 10.0.3.254 lladdr 00:00:00:00:03:fe dev eth1
+        - ip route replace 10.0.1.0/24 via 10.0.3.254 dev eth1
+        - ip route replace 10.0.2.0/24 via 10.0.3.254 dev eth1
         - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
         - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
         - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.11 --dport 443 -j REDIRECT --to-port 8444
@@ -74,11 +71,11 @@ topology:
       cpu: 2
       memory: 2Gb
       exec:
-        - ip link set dev eth1 address 00:00:00:00:05:0a
-        - ip addr add 10.20.3.1/30 dev eth1
+        - ip addr add 10.20.1.1/30 dev eth1
         - ip link set dev eth1 up
 
   links:
-    - endpoints: ["client:eth1", "mitm:eth1"]
-    - endpoints: ["mitm:eth2", "server:eth1"]
-    - endpoints: ["mitm:eth3", "controller:eth1"]
+    - endpoints: ["switch:eth1", "client:eth1"]
+    - endpoints: ["switch:eth2", "server:eth1"]
+    - endpoints: ["switch:eth3", "mitm:eth1"]
+    - endpoints: ["switch:eth5", "controller:eth1"]
