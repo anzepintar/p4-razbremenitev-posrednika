@@ -1,0 +1,70 @@
+name: mitm_controller
+
+topology:
+  nodes:
+    switch:
+      kind: linux
+      image: p4-switch:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip addr add 10.20.1.2/30 dev eth5
+        - ip link set dev eth5 up
+
+    client:
+      kind: linux
+      image: endpoint:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:01:0a
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace default via 10.0.1.254 dev eth1
+
+    server:
+      kind: linux
+      image: endpoint:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:02:0a
+        - ip addr add 10.0.2.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
+        - ip route replace default via 10.0.2.254 dev eth1
+
+    mitm:
+      kind: linux
+      image: mitmproxy-node:latest
+      cpu: 2
+      memory: 2Gb
+      sysctls:
+        net.ipv4.ip_forward: 1
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:03:0a
+        - ip addr add 10.0.1.254/24 dev eth1
+        - ip link set dev eth1 up
+        - ip link set dev eth2 address 00:00:00:00:03:0b
+        - ip addr add 10.0.2.254/24 dev eth2
+        - ip link set dev eth2 up
+        - ip link set dev eth3 address 00:00:00:00:03:0c
+        - ip addr add 10.20.3.2/30 dev eth3
+        - ip link set dev eth3 up
+        - iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
+        - iptables -t nat -A PREROUTING -i eth1 -p udp --dport 443 -j REDIRECT --to-port 8443
+
+    controller:
+      kind: linux
+      image: p4-controller:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:05:0a
+        - ip addr add 10.20.3.1/30 dev eth1
+        - ip link set dev eth1 up
+
+  links:
+    - endpoints: ["client:eth1", "mitm:eth1"]
+    - endpoints: ["mitm:eth2", "server:eth1"]
+    - endpoints: ["mitm:eth3", "controller:eth1"]

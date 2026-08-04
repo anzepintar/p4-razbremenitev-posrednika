@@ -1,0 +1,49 @@
+name: mitm_full
+
+topology:
+  nodes:
+
+    client:
+      kind: linux
+      image: endpoint:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:01:0a
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace default via 10.0.1.254 dev eth1
+
+    server:
+      kind: linux
+      image: endpoint:latest
+      cpu: 2
+      memory: 2Gb
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:02:0a
+        - ip addr add 10.0.2.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
+        - ip route replace default via 10.0.2.254 dev eth1
+
+    mitm:
+      kind: linux
+      image: mitmproxy-node:latest
+      cpu: 2
+      memory: 2Gb
+      sysctls:
+        net.ipv4.ip_forward: 1
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:03:0a
+        - ip addr add 10.0.1.254/24 dev eth1
+        - ip link set dev eth1 up
+        - ip link set dev eth1 promisc on
+        - ip link set dev eth2 address 00:00:00:00:03:0b
+        - ip addr add 10.0.2.254/24 dev eth2
+        - ip link set dev eth2 up
+        - iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
+        - iptables -t nat -A PREROUTING -i eth1 -p udp --dport 443 -j REDIRECT --to-port 8443
+
+  links:
+    - endpoints: ["client:eth1", "mitm:eth1"]
+    - endpoints: ["mitm:eth2", "server:eth1"]
