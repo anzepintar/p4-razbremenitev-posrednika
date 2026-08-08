@@ -1,0 +1,8 @@
+100  testset_label     <meta name="x-testset-label" content="phishing">
+
+30   password_input    <input[^>]+type=["']?password
+20   form_offsite      <form[^>]+action=["']https?://
+20   urgency_phrases   verify your account|confirm your identity|unusual sign[- ]?in|your account (has been )?(suspended|locked|disabled)
+15   brand_keywords    paypal|office ?365|microsoft account|apple id|netflix|wells fargo|bank of america
+15   obfuscated_js     eval\(|atob\(|unescape\(|fromCharCode
+10   credential_words  name=["']?(passwd|pwd|pass|userid|user_id|login_email)

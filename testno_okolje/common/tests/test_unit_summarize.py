@@ -3,13 +3,13 @@ from runner import summarize
 
 def rows():
     return [
-        {"proto": "h2", "category": "benign", "client": "c1", "http_version": "2",
+        {"proto": "h2", "category": "benign", "client": "c1", "trust": "high", "http_version": "2",
          "http_code": 200, "time_total": 0.010, "size_download": 100},
-        {"proto": "h2", "category": "benign", "client": "c1", "http_version": "2",
+        {"proto": "h2", "category": "benign", "client": "c1", "trust": "high", "http_version": "2",
          "http_code": 200, "time_total": 0.020, "size_download": 200},
-        {"proto": "h3", "category": "blocked", "client": "c3", "http_version": "3",
+        {"proto": "h3", "category": "blocked", "client": "c3", "trust": "low", "http_version": "3",
          "http_code": 200, "time_total": 0.030, "size_download": 300},
-        {"proto": "h3", "category": "blocked", "client": "c3", "http_version": "3",
+        {"proto": "h3", "category": "blocked", "client": "c3", "trust": "low", "http_version": "3",
          "http_code": 500, "time_total": 0.040, "size_download": 0},
     ]
 
@@ -31,11 +31,18 @@ def test_totals_count_errors_separately():
         "requests": 4,
         "ok": 3,
         "errors": 1,
+        "blocked": 0,
         "bytes": 600,
         "p50_ms": 20.0,
         "p95_ms": 30.0,
         "p99_ms": 30.0,
     }
+
+
+def test_blocked_counted_apart_from_errors():
+    blocked = dict(rows()[0], http_code=403, blocked=True, block_rules="testset_label")
+    total = summarize.summarize([*rows(), blocked])["total"]
+    assert (total["requests"], total["ok"], total["errors"], total["blocked"]) == (5, 3, 2, 1)
 
 
 def test_breakdown_by_protocol_category_and_client():
@@ -44,6 +51,12 @@ def test_breakdown_by_protocol_category_and_client():
     assert summary["category"]["blocked"]["errors"] == 1
     assert summary["client"]["c1"]["ok"] == 2
     assert summary["http_version"]["3"]["requests"] == 2
+
+
+def test_breakdown_by_trust_separates_paths():
+    summary = summarize.summarize(rows())
+    assert summary["trust"]["high"]["ok"] == 2
+    assert summary["trust"]["low"]["p50_ms"] == 30.0
 
 
 def test_percentiles_ignore_failed_requests():

@@ -23,6 +23,24 @@ def test_resolve_replaces_dns_but_keeps_domain_in_url(scenario):
     assert argv[-1] == f"https://{domain}/index.html"
 
 
+def test_block_header_marks_row_as_blocked():
+    record = {
+        "curl": {"http_code": 403},
+        "x_sni": "legit.example",
+        "x_domain": "phish.example",
+        "x_block": "testset_label,password_input",
+    }
+    row = curlrun.to_metric(record, labels={})
+    assert (row["blocked"], row["block_rules"]) == (True, "testset_label,password_input")
+    # Domena ostane phishing, SNI pa legitimna - blokada torej ni padla po SNI.
+    assert (row["server_domain"], row["server_sni"]) == ("phish.example", "legit.example")
+
+
+def test_row_without_block_header_is_not_blocked():
+    row = curlrun.to_metric({"curl": {"http_code": 200}, "x_block": ""}, labels={})
+    assert (row["blocked"], row["block_rules"]) == (False, None)
+
+
 def test_host_header_only_when_fronting(scenario):
     assert "--header" not in argv_for(scenario)
 

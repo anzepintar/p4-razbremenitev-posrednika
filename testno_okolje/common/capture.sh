@@ -20,16 +20,19 @@ CONTAINER="clab-${TOPO}-${NODE}"
 PCAP="/opt/traffic/out/${TOPO}-${NODE}.pcap"
 
 if [ "$STOP" -eq 1 ]; then
-	docker exec "$CONTAINER" pkill -INT tcpdump || true
-	echo "zajem ustavljen: out/${TOPO}-${NODE}.pcap"
+	if ! docker exec "$CONTAINER" pkill -INT tcpdump; then
+		echo "tcpdumpa v $CONTAINER ni bilo mogoce ustaviti - zajem morda se tece" >&2
+		exit 1
+	fi
+	echo "zajem ustavljen: common/out/${TOPO}-${NODE}.pcap"
 	exit 0
 fi
 
 mkdir -p out
 docker exec -d "$CONTAINER" tcpdump -i "$IFACE" -w "$PCAP" -U 'tcp port 443 or udp port 443'
-echo "zajem tece v $CONTAINER -> out/${TOPO}-${NODE}.pcap"
+echo "zajem tece v $CONTAINER -> common/out/${TOPO}-${NODE}.pcap"
 echo
 echo "Za desifriranje v Wiresharku nastavi orkestratorju SSLKEYLOGFILE:"
-echo "  SSLKEYLOGFILE=/opt/traffic/out/keys.log python3 -m runner --config /opt/traffic/scenario.yml"
+echo "  env SSLKEYLOGFILE=/opt/traffic/out/keys.log python3 -m runner --config /opt/traffic/scenario.yml"
 echo "nato v Wiresharku: Preferences -> Protocols -> TLS -> (Pre)-Master-Secret log filename"
-echo "  -> out/keys.log   (desifrira HTTP/2 in HTTP/3 iz iste datoteke)"
+echo "  -> common/out/keys.log   (desifrira HTTP/2 in HTTP/3 iz iste datoteke)"

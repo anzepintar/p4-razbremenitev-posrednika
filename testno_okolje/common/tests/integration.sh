@@ -91,9 +91,10 @@ body=$(client client:latest $CURL --http3-only --resolve "$PHISH:443:127.0.0.1" 
 want=$(md5sum "$COMMON/server/testset/osnovni/$PHISH/index.html" | cut -d' ' -f1)
 check "telo je bajt za bajt enaka stran iz nabora" "$body" "$want"
 
-check "nepostrezen podvir vrne 404" \
+check "nepostrezen podvir dobi nadomestek" \
 	"$(client client:latest $CURL --http2 --resolve "$LEGIT1:443:127.0.0.1" \
-		-o /dev/null -w '%{http_code}' "https://$LEGIT1/ni-me.css")" "404"
+		-o /dev/null -w '%{http_code} %{size_download}' "https://$LEGIT1/ni-me.css")" \
+	"200 24576"
 
 echo
 echo "== domain fronting =="

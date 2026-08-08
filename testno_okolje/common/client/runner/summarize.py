@@ -21,6 +21,7 @@ def _stats(rows: list[dict]) -> dict:
         "requests": len(rows),
         "ok": len(ok),
         "errors": len(rows) - len(ok),
+        "blocked": sum(1 for row in rows if row.get("blocked")),
         "bytes": sum(row.get("size_download") or 0 for row in rows),
         **{f"p{pct}_ms": _ms(percentile(times, pct)) for pct in PERCENTILES},
     }
@@ -35,6 +36,7 @@ def summarize(rows: list[dict]) -> dict:
         "proto": defaultdict(list),
         "category": defaultdict(list),
         "client": defaultdict(list),
+        "trust": defaultdict(list),
         "http_version": defaultdict(list),
         "fronting": defaultdict(list),
     }

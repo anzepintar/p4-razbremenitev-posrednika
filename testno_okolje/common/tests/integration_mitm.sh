@@ -70,13 +70,20 @@ ok "Caddy tece"
 
 echo
 echo "== zagon mitmproxy v reverse nacinu na 127.0.0.1 =="
-docker run -d --name "$PROXY" --network host -v "$WORK:/work" proxy:latest \
-	mitmdump --set confdir=/work/mitmconf \
-	--set ssl_verify_upstream_trusted_ca=/work/trust.pem \
-	--set keep_host_header=true \
-	--set flow_detail=2 \
-	-s /opt/proxy/sni_passthrough.py \
-	--mode "reverse:https://127.0.0.2:443@127.0.0.1:443" >/dev/null
+start_proxy() {
+	docker rm -f "$PROXY" >/dev/null 2>&1 || true
+	docker run -d --name "$PROXY" --network host \
+		-e BLOCK_LOG=/work/verdicts.jsonl \
+		-v "$COMMON:/opt/traffic:ro" -v "$WORK:/work" proxy:latest \
+		mitmdump --set confdir=/work/mitmconf \
+		--set ssl_verify_upstream_trusted_ca=/work/trust.pem \
+		--set keep_host_header=true \
+		--set flow_detail=2 \
+		-s /opt/proxy/sni_passthrough.py \
+		"$@" \
+		--mode "reverse:https://127.0.0.2:443@127.0.0.1:443" >/dev/null
+}
+start_proxy
 
 MITM_CA="$WORK/mitmconf/mitmproxy-ca-cert.pem"
 for _ in $(seq 1 60); do
@@ -121,6 +128,38 @@ grep -q "HTTP/3" <<<"$logs" && ok "posrednik je razstavil zahtevo HTTP/3" ||
 	fail "v dnevniku posrednika ni zahteve HTTP/3"
 grep -q "x-sni: $LEGIT1" <<<"$logs" && ok "odgovor izvora pripada pravemu bloku" ||
 	fail "posrednik ni videl odgovora pravega bloka"
+
+echo
+echo "== pregled vsebine (content_block) =="
+start_proxy -s /opt/proxy/content_block.py
+sleep 3
+
+check "phishing stran je blokirana" \
+	"$(client $CURL --http2 --resolve $PHISH:443:127.0.0.1 \
+		-o /dev/null -w '%{http_code}|%header{x-block}' https://$PHISH/index.html)" \
+	"403|testset_label"
+
+check "legitimna stran gre skozi" \
+	"$(client $CURL --http3-only --resolve $LEGIT1:443:127.0.0.1 \
+		-o /dev/null -w '%{http_code}|%header{x-block}' https://$LEGIT1/index.html)" \
+	"200|"
+
+# SNI kaze na legitimno domeno, streze pa se phishing stran.
+check "domain fronting je blokiran po vsebini" \
+	"$(client $CURL --http2 --resolve $LEGIT1:443:127.0.0.1 --header "Host: $PHISH" \
+		-o /dev/null -w '%{http_code}|%header{x-sni}|%header{x-domain}' https://$LEGIT1/index.html)" \
+	"403|$LEGIT1|$PHISH"
+
+verdicts=$(docker run --rm -v "$WORK:/work:ro" client:latest python3 -c '
+import json
+rows = [json.loads(line) for line in open("/work/verdicts.jsonl")]
+blocked = [r for r in rows if r["blocked"]]
+print(len(rows), len(blocked), all("scan_ms" in r and "heuristic_score" in r for r in rows))
+')
+read -r total blocked fields <<<"$verdicts"
+check "presoja je zabelezena za vsak pregledan odgovor" "$total" "3"
+check "blokirani sta obe phishing zahtevi" "$blocked" "2"
+check "presoja nosi scan_ms in heuristic_score" "$fields" "True"
 
 echo
 [ "$FAILURES" -eq 0 ] && {

@@ -28,6 +28,11 @@ profiles:
     think_time: [0.2, 1.0]
     fronting: {share: 0.5}
 
+policy:
+  mitm: {high: direct, medium: direct, low: via_mitm}
+  ids: {high: mirror, medium: mirror, low: mirror}
+  full: {high: mirror, medium: mirror, low: via_mitm}
+
 run:
   duration: 60
   seed: 1234

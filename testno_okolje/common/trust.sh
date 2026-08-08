@@ -28,7 +28,7 @@ docker exec "$SERVER" cat "$CADDY_CA" >pki/trust.pem
 
 if docker exec "$PROXY" test -s "$MITM_CA" 2>/dev/null; then
 	docker exec "$PROXY" cat "$MITM_CA" >>pki/trust.pem
-	echo "pki/trust.pem: Caddy + mitmproxy"
+	echo "common/pki/trust.pem: Caddy + mitmproxy"
 else
-	echo "pki/trust.pem: samo Caddy (mitmproxy v tej postavitvi ne tece ali se nima CA)"
+	echo "common/pki/trust.pem: samo Caddy (mitmproxy v tej postavitvi ne tece ali se nima CA)"
 fi

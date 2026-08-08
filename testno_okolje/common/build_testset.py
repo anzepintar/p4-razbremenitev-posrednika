@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
+import re
 import shutil
 import sys
 from itertools import zip_longest
@@ -10,6 +12,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "client"))
+
+from runner.scenario import LABELS  # noqa: E402
+
 DATASET = HERE.parent.parent / "testni_podatki" / "LNU-Phish-raw_no-screenshot"
 
 LEGIT_SOURCES = [
@@ -25,6 +31,14 @@ PHISH_SOURCES = [
 SETS = {"osnovni": (50, 50), "testni": (950, 50)}
 
 CHUNK = 1 << 20
+
+# Oznaka je v telesu strani, zato jo vidi samo tisti, ki promet desifrira.
+MARKER = '<meta name="x-testset-label" content="{category}">'
+HEAD = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
+
+# za zahteve, ki bi drugače vrnile 404
+ASSET = "_asset.bin"
+ASSET_SIZE = 24 * 1024
 
 
 def iter_records(path: Path):
@@ -113,17 +127,32 @@ def collect(sources: list[str], wanted: int, seen: set[str], dataset: Path) -> l
     return picked
 
 
+def mark(html: str, label: str) -> str:
+    """Oznako vstavi za <head>, sicer na zacetek dokumenta."""
+    marker = MARKER.format(category=LABELS[label])
+    found = HEAD.search(html)
+    if found:
+        return html[: found.end()] + marker + html[found.end() :]
+    return marker + html
+
+
 def write_set(name: str, sites: list[dict], out: Path) -> None:
     target = out / name
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
 
+    (target / ASSET).write_bytes(random.Random(0).randbytes(ASSET_SIZE))
+
     manifest = []
     for site in sites:
         directory = target / site["domain"]
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "index.html").write_text(site["html"], encoding="utf-8")
+        (directory / "index.html").write_text(
+            mark(site["html"], site["label"]), encoding="utf-8"
+        )
+        # Povezava namesto kopije, da nabor ne zraste za velikost x stevilo strani.
+        (directory / ASSET).symlink_to(Path("..") / ASSET)
         manifest.append({k: v for k, v in site.items() if k != "html"})
 
     (target / "sites.json").write_text(

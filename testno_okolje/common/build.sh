@@ -3,12 +3,9 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-if [ ! -d server/testset ]; then
-	echo "najprej poženi ./build_testset.py" >&2
-	exit 1
-fi
-
 python3 gen_caddyfile.py
+
+python3 ids/gen_rules.py
 
 docker build -t server:latest -f server/Dockerfile server
 
@@ -16,4 +13,8 @@ docker build -t client:latest -f client/Dockerfile client
 
 docker build -t proxy:latest -f proxy/Dockerfile proxy
 
-docker build -t tests:latest -f tests/Dockerfile .
+docker build -t p4-switch:latest -f switch/Dockerfile switch
+
+docker build -t p4-controller:latest -f controller/Dockerfile controller
+
+docker build -t ids:latest -f ids/Dockerfile ids

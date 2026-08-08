@@ -8,8 +8,13 @@ from .urls import Target
 
 PORT = 443
 
-# Poleg %{json} pobere se odzivni glavi, ki ju postavi Caddy.
-WRITE_OUT = '{"curl":%{json},"x_sni":"%header{x-sni}","x_domain":"%header{x-domain}"}\\n'
+CONNECT_TIMEOUT = 5
+MAX_TIME = 15
+
+WRITE_OUT = (
+    '{"curl":%{json},"x_sni":"%header{x-sni}",'
+    '"x_domain":"%header{x-domain}","x_block":"%header{x-block}"}\\n'
+)
 
 PROTO_FLAG = {
     "h2": ["--http2"],
@@ -35,6 +40,7 @@ def build_argv(
     insecure: bool = False,
 ) -> list[str]:
     argv = ["curl", "--silent", "--no-progress-meter", "--show-error"]
+    argv += ["--connect-timeout", str(CONNECT_TIMEOUT), "--max-time", str(MAX_TIME)]
     argv += PROTO_FLAG[request.proto]
 
     argv += ["--interface", src_ip]
@@ -84,4 +90,6 @@ def to_metric(record: dict, *, labels: dict) -> dict:
         "exitcode": curl.get("exitcode"),
         "server_sni": record.get("x_sni") or None,
         "server_domain": record.get("x_domain") or None,
+        "blocked": bool(record.get("x_block")),
+        "block_rules": record.get("x_block") or None,
     }

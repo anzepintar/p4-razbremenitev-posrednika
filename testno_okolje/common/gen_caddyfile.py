@@ -30,6 +30,7 @@ HEADER = """# Nastalo iz {manifest} - ne urejaj rocno, popravi gen_caddyfile.py.
 
 	# {{host}} izbere korenski imenik.
 	root * {root}/{{host}}
+	try_files {{path}} /_asset.bin
 	file_server
 }}
 """

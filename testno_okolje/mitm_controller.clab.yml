@@ -2,15 +2,6 @@ name: mitm_controller
 
 topology:
   nodes:
-    switch:
-      kind: linux
-      image: p4-switch:latest
-      cpu: 2
-      memory: 2Gb
-      exec:
-        - ip addr add 10.20.1.2/30 dev eth5
-        - ip link set dev eth5 up
-
     client:
       kind: linux
       image: client:latest
@@ -39,7 +30,6 @@ topology:
         - ip addr add 10.0.2.11/24 dev eth1
         - ip addr add 10.0.2.12/24 dev eth1
         - ip link set dev eth1 up
-        - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
         - ip route replace default via 10.0.2.254 dev eth1
 
     mitm:
@@ -73,6 +63,8 @@ topology:
       image: p4-controller:latest
       cpu: 2
       memory: 2Gb
+      binds:
+        - common:/opt/traffic
       exec:
         - ip link set dev eth1 address 00:00:00:00:05:0a
         - ip addr add 10.20.3.1/30 dev eth1

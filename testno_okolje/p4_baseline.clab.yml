@@ -2,11 +2,18 @@ name: p4_baseline
 
 topology:
   nodes:
+    # vrata bmv2: eth1=1 klient, eth2=2 streznik, eth3=3 mitm, eth4=4 ids
+    # eth5 = samo upravljanje (P4Runtime gRPC 10.20.1.2:9559), ni v P4 cevovodu
     switch:
       kind: linux
       image: p4-switch:latest
       cpu: 2
       memory: 2Gb
+      binds:
+        - common:/opt/traffic
+      exec:
+        - ip link set dev eth1 up
+        - ip link set dev eth2 up
 
     client:
       kind: linux
@@ -21,6 +28,7 @@ topology:
         - ip addr add 10.0.1.11/24 dev eth1
         - ip addr add 10.0.1.12/24 dev eth1
         - ip link set dev eth1 up
+        - ip neigh replace 10.0.1.254 lladdr 00:00:00:00:01:fe dev eth1
         - ip route replace default via 10.0.1.254 dev eth1
 
     server:

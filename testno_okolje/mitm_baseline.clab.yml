@@ -31,7 +31,6 @@ topology:
         - ip addr add 10.0.2.11/24 dev eth1
         - ip addr add 10.0.2.12/24 dev eth1
         - ip link set dev eth1 up
-        - ip neigh replace 10.0.2.254 lladdr 00:00:00:00:02:fe dev eth1
         - ip route replace default via 10.0.2.254 dev eth1
 
     mitm:
