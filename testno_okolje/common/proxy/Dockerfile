@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY sni_passthrough.py /opt/proxy/sni_passthrough.py
 COPY content_block.py /opt/proxy/content_block.py
 COPY controller_bypass.py /opt/proxy/controller_bypass.py
+COPY proxy_stats.py /opt/proxy/proxy_stats.py
 
 ENTRYPOINT []
 

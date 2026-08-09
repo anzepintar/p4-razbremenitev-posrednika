@@ -109,14 +109,20 @@ common/build.sh
 docker build -t server:latest        -f common/server/Dockerfile     common/server
 docker build -t client:latest        -f common/client/Dockerfile     common/client
 docker build -t proxy:latest         -f common/proxy/Dockerfile      common/proxy
+docker build -t bmv2-perf:1.15.5     -f common/switch/bmv2.Dockerfile common/switch
 docker build -t p4-switch:latest     -f common/switch/Dockerfile     common/switch
 docker build -t p4-controller:latest -f common/controller/Dockerfile common/controller
 docker build -t ids:latest           -f common/ids/Dockerfile        common/ids
 ```
 
 `p4-switch` se gradi v dveh stopnjah: prva s `p4lang/p4c` prevede `common/switch/steering.p4`,
-druga na `p4lang/behavioral-model` doda le prevedeni program. Napaka v `.p4` se tako pokaže
+druga na `bmv2-perf` doda le prevedeni program. Napaka v `.p4` se tako pokaže
 že pri gradnji, ne šele sredi meritve. `p4c` in bmv2 na gostitelju nista potrebna.
+
+### Gradnja bmv2
+
+Dve sliki
+
 
 ## Testi delovanja sistema ...
 
@@ -124,7 +130,7 @@ druga na `p4lang/behavioral-model` doda le prevedeni program. Napaka v `.p4` se 
 PYTHONPATH=common/client python3 -m pytest common/tests -q   # enotski
 common/tests/integration.sh                                  # H2/H3 do Caddyja
 common/tests/integration_mitm.sh                             # H2/H3 skozi mitmproxy
-common/tests/integration_p4.sh                               # vse tri postavitve p4_*
+common/tests/integration_p4.sh                               # vse štiri postavitve p4_*
 common/tests/integration_controller.sh                       # mitm_controller
 ```
 
@@ -148,9 +154,8 @@ clab exec -t client_server.clab.yml --label clab-node-name=client --cmd "env SSL
 `--duration` | trajanje v sekundah, prepiše `run.duration`
 `--requests` | število nalaganj strani na odjemalca; če je podan, `--duration` ne velja
 `--insecure` | brez preverjanja certifikatov in brez čakanja na CA
+`--speed` | skrči čakanje med zahtevami (`think_time` in `rate`); zaporedje zahtev ostane isto
 
-Rezultata sta `common/out/metrics.jsonl` (ena vrstica na zahtevo) in `common/out/summary.json`
-(p50/p95/p99 po protokolu, kategoriji in odjemalcu). Runner povzetek izpiše tudi na zaslon.
 
 Ustavitev:
 
@@ -222,9 +227,12 @@ common/trust.sh p4_baseline
 clab exec -t p4_baseline.clab.yml --label clab-node-name=client --cmd "python3 -m runner --config /opt/traffic/scenario.yml --requests 40"
 ```
 
-`SWITCH_LOG=1` pred `start_switch.sh` vklopi izpis bmv2; privzeto je izklopljen, ker močno vpliva
-na latenco. Skripta sama dvigne vmesnike, izklopi offloade (sicer bi bmv2 pošiljal pokvarjene
-kontrolne vsote) in prevedeni program skopira v `common/switch/build/`, od koder ga bo bral krmilnik.
+`SWITCH_ARGS` pred `start_switch.sh` doda poljubne argumente za bmv2, npr.
+`SWITCH_ARGS="--log-console -L debug"`. Izpis na posamezen paket dela **samo v sliki
+`p4-switch:debug`** (`BMV2_PROFILE=debug common/build.sh`) — v privzeti gradnji so logging makri
+odstranjeni že ob prevajanju, zato `--log-console` tam pokaže le zagonske vrstice. Skripta sama
+dvigne vmesnike, izklopi offloade (sicer bi bmv2 pošiljal pokvarjene kontrolne vsote) in prevedeni
+program skopira v `common/switch/build/`, od koder ga bo bral krmilnik.
 
 Vrata stikala so v vseh P4 topologijah enaka:
 
@@ -329,6 +337,23 @@ docker exec -d clab-p4_controller_ids-ids sh -c \
     'exec python3 /opt/ids/alert_forward.py >>/opt/traffic/out/forward.log 2>&1'
 ```
 
+### Postavitev p4_full
+
+Celotno postavitev zažene ena skripta:
+
+```sh
+common/start.sh p4_full --content-block
+clab exec -t p4_full.clab.yml --label clab-node-name=client \
+    --cmd "python3 -m runner --config /opt/traffic/scenario.yml --requests 40"
+```
+
+`start.sh <topologija> [--policy ime] [--content-block]` zna vse postavitve in zažene le tiste dele,
+ki jih topologija ima, v pravem vrstnem redu. Po zagonu Caddyja iz **strežniškega** kontejnerja
+obišče vseh 100 domen, da Caddy izda certifikate: `tls internal` jih izda šele ob prvi zahtevi za
+domeno, zato je prej med meritvijo vsake toliko kakšna stran odpovedala s `SSL connect error`
+(v eni seriji 48 zahtev). Ogrevanje teče iz strežnika in ne z odjemalca zato, ker bi sicer promet
+do phishing domen šel skozi IDS in posrednik ter znižal zaupanje še pred meritvijo.
+
 ### Stanje postavitve
 
 ```sh
@@ -338,34 +363,61 @@ docker exec clab-client_server-client ip -br addr    # so se exec ukazi topologi
 ```
 ## Primerjava
 
-`common/compare.sh` požene tri zagone z istim `seed` in istim številom zahtev, torej z
+`common/compare.sh` požene zagone z istim `seed` in istim številom zahtev, torej z
 identičnim zaporedjem zahtev:
 
-Zagon | Topologija | mitmdump | Meri
+Zagon | Topologija | Posebnost | Meri
 :--- | :--- | :--- | :---
 `A` | `client_server` | — | osnovna vrednost brez posrednika
 `B` | `mitm_baseline` | `sni_passthrough.py` | cena prestrezanja TLS
-`C` | `mitm_baseline` | `sni_passthrough.py` + `content_block.py` | prestrezanje in pregled vsebine
+`C` | `mitm_baseline` | `+ content_block.py` | prestrezanje in pregled vsebine
+`D` | `p4_baseline` | — | osnovna vrednost P4 veje
+`E` | `p4_controller_mitm` | politika `mitm` | cena preusmerjanja na posrednik
+`F` | `p4_controller_ids` | politika `ids` | cena zrcaljenja na IDS
+`G` | `p4_full` | politika `full`, `+ content_block.py` | rešitev z zanko zaupanja
+`H` | `mitm_controller` | `+ controller_bypass.py`, `+ content_block.py` | izbirni pregled brez stikala
 
 B in C sta ista topologija in ista pot, razlikujeta se le po naloženem addonu — zato je
-`C − B` cena pregleda vsebine, `B − A` pa cena prestrezanja.
+`C − B` cena pregleda vsebine, `B − A` pa cena prestrezanja. Znotraj P4 veje je `D` izhodišče,
+`E − D` cena preusmerjanja, `F − D` cena zrcaljenja. Absolutnih vrednosti med vejama (`A`–`C`
+proti `D`–`G`) se ne primerja, ker je bmv2 programsko stikalo.
+
+`H` je neposredni protiutež `G`: ista ideja izbirnega pregleda, a odločitev pade šele v posredniku
+namesto v stikalu. `G − H` je torej cena oziroma prihranek tega, da odločanje prestavimo v podatkovno
+ravnino.
 
 ```sh
-common/compare.sh          # 40 nalaganj strani na odjemalca
+common/compare.sh          # 40 nalaganj strani na odjemalca, vsi zagoni
 common/compare.sh 100
+common/compare.sh 40 ADG   # samo izbrani zagoni
 ```
 
-Skripta za vsak zagon sama postavi in podre topologijo. `clab deploy` in `destroy` potrebujeta
-`sudo`; kdor je containerlabu nastavil SUID (glej [Zahteve](#zahteve)), ga izklopi s `SUDO= common/compare.sh`.
-Rezultate pusti v `common/out/A/`, `common/out/B/` in `common/out/C/`. Na koncu pokliče `compare.py`,
-ki naredi `common/out/compare.md` in `common/out/compare.json` z razdelki: latence po protokolu in kategoriji
-z razlikami, matrika zaznave (TP/FP/TN/FN), tabela SNI proti vsebini, hevristika po pragovih in
-cena pregleda.
+Serija traja dolgo, zato se sama zavije v `systemd-inhibit`, da gostitelj med meritvijo ne gre v
+mirovanje — sicer se v podatkih pojavi vrzel in trajanje zagona ni več uporabno.
+
+Skripta za vsak zagon sama postavi in podre topologijo prek `start.sh`. `clab deploy` in `destroy`
+potrebujeta `sudo`; kdor je containerlabu nastavil SUID (glej [Zahteve](#zahteve)), ga izklopi s
+`SUDO= common/compare.sh`. Ker sedem zagonov traja dolgo, je izbira podmnožice priporočljiva.
+Rezultate pusti v `common/out/<zagon>/` (poleg meritev še `verdicts.jsonl`, `alerts.jsonl`,
+`controller.jsonl` in `eve.json`). Na koncu pokliče `compare.py`, ki naredi `common/out/compare.md`
+in `common/out/compare.json` z razdelki: latence po protokolu in kategoriji z razlikami, matrika
+zaznave (TP/FP/TN/FN), tabela SNI proti vsebini, **vir zaznave** (IDS po pravilih proti IDS po SNI
+iz QUIC proti blokadi po vsebini), **odziv krmilnika** (znižanja zaupanja in `reaction_ms`),
+hevristika po pragovih in cena pregleda.
 
 Povzetek se da narediti tudi ločeno, brez ponovnega zagona:
 
 ```sh
 common/compare.py
+```
+### Grafi
+
+`common/compare.sh` na koncu pokliče še `common/plot.py`, ki iz `out/<zagon>/` naredi štiri slike
+PNG v `common/out/graf/`. Enako se da pognati ločeno:
+
+```sh
+common/plot.py                 # vsi zagoni
+common/plot.py --runs ADG      # samo izbrani
 ```
 
 ## Zajem prometa

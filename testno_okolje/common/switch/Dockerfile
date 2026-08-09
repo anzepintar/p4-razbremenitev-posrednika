@@ -1,3 +1,5 @@
+ARG BMV2_IMAGE=bmv2-perf:1.15.5
+
 FROM p4lang/p4c:1.2.5.16 AS build
 
 COPY steering.p4 /src/steering.p4
@@ -7,7 +9,7 @@ RUN mkdir -p /out && p4c --target bmv2 --arch v1model \
         --p4runtime-files /out/steering.p4info.txtpb \
         -o /out /src/steering.p4
 
-FROM p4lang/behavioral-model:latest
+FROM ${BMV2_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 ethtool tcpdump iputils-ping \

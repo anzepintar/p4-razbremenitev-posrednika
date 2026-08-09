@@ -19,9 +19,6 @@ def test_percentile_uses_nearest_rank():
     assert summarize.percentile(values, 50) == 5
     assert summarize.percentile(values, 95) == 10
     assert summarize.percentile(values, 100) == 10
-
-
-def test_percentile_of_empty_is_none():
     assert summarize.percentile([], 50) is None
 
 
@@ -45,16 +42,12 @@ def test_blocked_counted_apart_from_errors():
     assert (total["requests"], total["ok"], total["errors"], total["blocked"]) == (5, 3, 2, 1)
 
 
-def test_breakdown_by_protocol_category_and_client():
+def test_breakdown_by_every_grouping():
     summary = summarize.summarize(rows())
     assert summary["proto"]["h2"]["requests"] == 2
     assert summary["category"]["blocked"]["errors"] == 1
     assert summary["client"]["c1"]["ok"] == 2
     assert summary["http_version"]["3"]["requests"] == 2
-
-
-def test_breakdown_by_trust_separates_paths():
-    summary = summarize.summarize(rows())
     assert summary["trust"]["high"]["ok"] == 2
     assert summary["trust"]["low"]["p50_ms"] == 30.0
 

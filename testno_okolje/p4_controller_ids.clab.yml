@@ -7,7 +7,7 @@ topology:
     # Ta postavitev nima mitm-a, zato eth3 ne obstaja; ostevilcenje vrat ostane enako.
     switch:
       kind: linux
-      image: p4-switch:latest
+      image: ${SWITCH_IMAGE:-p4-switch:latest}
       cpu: 2
       memory: 2Gb
       binds:

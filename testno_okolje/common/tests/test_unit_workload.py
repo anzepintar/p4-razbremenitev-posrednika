@@ -49,6 +49,8 @@ def test_share_one_fronts_every_request(scenario):
         assert request.host_header in phishing, ":authority mora biti phishing domena"
         assert request.host_header == domain
         assert request.targets[0].domain != request.host_header
+        cover = scenario.sites[request.targets[0].domain]
+        assert cover.ip == scenario.sites[domain].ip, f"{cover.domain} proti {domain}"
 
 
 def test_share_zero_never_fronts(scenario):

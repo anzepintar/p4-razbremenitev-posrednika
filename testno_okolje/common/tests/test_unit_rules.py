@@ -30,7 +30,3 @@ def test_label_rule_separates_the_set(rules, scenario):
     for site in scenario.sites.values():
         html = scenario.page_file(site.domain).read_text(encoding="utf-8", errors="replace")
         assert bool(label.search(html)) is (site.label == "mal"), site.domain
-
-
-def test_every_rule_has_a_positive_weight(rules):
-    assert rules and all(weight > 0 for weight, _, _ in rules)

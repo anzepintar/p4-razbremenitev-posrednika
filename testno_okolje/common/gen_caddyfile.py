@@ -18,13 +18,6 @@ HEADER = """# Nastalo iz {manifest} - ne urejaj rocno, popravi gen_caddyfile.py.
 (site) {{
 	tls internal
 
-	log {{
-		output file {access_log} {{
-			mode 644
-		}}
-		format json
-	}}
-
 	header X-Domain {{host}}
 	header X-Sni {{http.request.tls.server_name}}
 
@@ -43,7 +36,7 @@ BLOCK = """
 """
 
 
-def render(scenario: scenario_mod.Scenario, root: str, access_log: str) -> str:
+def render(scenario: scenario_mod.Scenario, root: str) -> str:
     grouped = scenario.domains_by_ip()
     text = HEADER.format(
         manifest=f"testset/{scenario.run.subset}/sites.json",
@@ -51,7 +44,6 @@ def render(scenario: scenario_mod.Scenario, root: str, access_log: str) -> str:
         ips=len(grouped),
         name=scenario.run.subset,
         root=root.rstrip("/"),
-        access_log=access_log,
     )
     for ip, domains in grouped.items():
         addresses = ",\n".join(f"https://{domain}" for domain in domains)
@@ -66,13 +58,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="nabor na gostitelju (za branje manifesta)")
     parser.add_argument("--root", default="/opt/traffic/server/testset",
                         help="nabor, kot ga vidi streznik")
-    parser.add_argument("--access-log", default="/opt/traffic/out/caddy-access.json")
     parser.add_argument("-o", "--out", default=HERE / "server" / "sites.caddy")
     args = parser.parse_args(argv)
 
     scenario = scenario_mod.load(args.config, testset=args.testset)
     root = f"{str(args.root).rstrip('/')}/{scenario.run.subset}"
-    Path(args.out).write_text(render(scenario, root, args.access_log), encoding="utf-8")
+    Path(args.out).write_text(render(scenario, root), encoding="utf-8")
 
     grouped = scenario.domains_by_ip()
     print(f"{args.out}: {len(scenario.sites)} domen na {len(grouped)} naslovih")

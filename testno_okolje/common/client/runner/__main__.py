@@ -20,6 +20,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--requests", type=int, default=None)
     parser.add_argument("--insecure", action="store_true")
+    parser.add_argument("--speed", type=float, default=1.0,
+                        help="skrci cakanje med zahtevami; zaporedje zahtev ostane isto")
     return parser.parse_args(argv)
 
 
@@ -65,13 +67,17 @@ def build_request(
     fronted = rng.random() < profile.fronting_share
 
     if fronted:
-        # SNI vzame legitimno domeno, :authority pa phishing domeno.
-        cover = rng.choice([s.domain for s in scenario.by_label("ben")])
         hidden = (
             domain
             if label == "mal"
             else rng.choice([s.domain for s in scenario.by_label("mal")])
         )
+        cover_pool = [
+            site.domain
+            for site in scenario.by_label("ben")
+            if site.ip == scenario.sites[hidden].ip
+        ] or [site.domain for site in scenario.by_label("ben")]
+        cover = rng.choice(cover_pool)
         targets = (urls.Target(domain=cover, path=scenario_mod.INDEX),)
         request = curlrun.Request(targets=targets, proto=proto, host_header=hidden)
         return request, hidden, True
@@ -91,7 +97,8 @@ async def run_client(
 ) -> None:
     profile = scenario.profile_for(client)
     rng = random.Random(scenario.run.seed + index)
-    min_interval = 1.0 / profile.rate
+    speed = max(args.speed, 0.01)
+    min_interval = 1.0 / (profile.rate * speed)
     done = 0
 
     while True:
@@ -101,7 +108,7 @@ async def run_client(
             return
 
         request, page_domain, fronted = build_request(scenario, profile, rng)
-        think = rng.uniform(*profile.think_time)
+        think = rng.uniform(*profile.think_time) / speed
         started = time.monotonic()
 
         argv = curlrun.build_argv(
@@ -188,6 +195,7 @@ async def main_async(args: argparse.Namespace) -> int:
         writer.close()
 
     summary = summarize.summarize(writer.rows)
+    summary["speed"] = args.speed
     (scenario.run.out / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

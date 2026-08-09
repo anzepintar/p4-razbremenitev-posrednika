@@ -7,6 +7,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 import yaml
@@ -31,7 +32,14 @@ class PolicyError(ValueError):
     pass
 
 
-def load_policy(path: Path, name: str) -> tuple[dict[str, str], dict[str, str]]:
+class Policy(NamedTuple):
+    mapping: dict[str, str]
+    clients: dict[str, str]
+    servers: list[str]
+    levels: list[str]
+
+
+def load_policy(path: Path, name: str) -> Policy:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     policies = raw.get("policy") or {}
@@ -48,8 +56,13 @@ def load_policy(path: Path, name: str) -> tuple[dict[str, str], dict[str, str]]:
     if missing:
         raise PolicyError(f"politika '{name}': manjka zaupanje {sorted(missing)}")
 
+    levels = list(raw.get("trust_levels") or [])
+    off_ladder = (set(clients.values()) | set(mapping)) - set(levels)
+    if off_ladder:
+        raise PolicyError(f"trust_levels ne vsebuje {sorted(off_ladder)}")
+
     servers = list((raw.get("testset") or {}).get("ips") or [])
-    return mapping, clients, servers
+    return Policy(mapping, clients, servers, levels)
 
 
 class Log:
@@ -161,13 +174,16 @@ class Handler(BaseHTTPRequestHandler):
 class Controller:
     def __init__(self, policy: dict[str, str], clients: dict[str, str],
                  steering: Steering, log: Log, name: str,
-                 servers: list[str] | None = None) -> None:
+                 servers: list[str] | None = None,
+                 levels: list[str] | None = None) -> None:
         self.policy = policy
         self.clients = clients
         self.steering = steering
         self.log = log
         self.name = name
         self.servers = servers or []
+        self.levels = levels or []
+        self._demote_lock = threading.Lock()
 
     def action_for(self, src_ip: str) -> str:
         trust = self.clients.get(src_ip)
@@ -201,20 +217,46 @@ class Controller:
                        action="inspect" if inspect else "direct", handle_ms=handle_ms)
         return {"action": "inspect" if inspect else "direct", "handle_ms": handle_ms}
 
+    def demote(self, src_ip: str) -> dict:
+        with self._demote_lock:
+            before = self.clients.get(src_ip)
+            if before is None or before not in self.levels:
+                return {"changed": False, "trust_before": before, "trust_after": before,
+                        "action_before": None, "action_after": None}
+
+            index = min(self.levels.index(before) + 1, len(self.levels) - 1)
+            after = self.levels[index]
+            action_before = self.policy[before]
+            action_after = self.policy[after]
+
+            self.clients[src_ip] = after
+            if action_after != action_before:
+                self.steering.apply(src_ip, action_after)
+            return {"changed": action_after != action_before,
+                    "trust_before": before, "trust_after": after,
+                    "action_before": action_before, "action_after": action_after}
+
     def alert(self, body: str) -> dict:
+        started = time.perf_counter()
         try:
             payload = json.loads(body)
         except ValueError:
             payload = {"raw": body}
-        self.log.write(source="alert", src=payload.get("src_ip"), sid=payload.get("sid"),
-                       sni=payload.get("sni"), signature=payload.get("signature"),
-                       detected_by=payload.get("source"))
-        return {"ok": True}
+
+        src = payload.get("src_ip") or ""
+        result = self.demote(src)
+        self.log.write(source="demote", src=src, sid=payload.get("sid"),
+                       sni=payload.get("sni"), detected_by=payload.get("source"),
+                       alert_ts=payload.get("ts"),
+                       reaction_ms=round((time.perf_counter() - started) * 1000, 4),
+                       **result)
+        return {"ok": True, **result}
 
     def state(self) -> dict:
         return {
             "policy": self.name,
             "mapping": self.policy,
+            "levels": self.levels,
             "clients": self.clients,
             "entries": self.steering.entries,
         }
@@ -232,16 +274,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    policy, clients, servers = load_policy(args.scenario, args.policy)
+    policy = load_policy(args.scenario, args.policy)
 
     steering = Steering(args.grpc_addr)
-    controller = Controller(policy, clients, steering, Log(args.log), args.policy, servers)
+    controller = Controller(policy.mapping, policy.clients, steering, Log(args.log),
+                            args.policy, policy.servers, policy.levels)
     controller.bootstrap()
 
     host, _, port = args.listen.rpartition(":")
     Handler.controller = controller
     server = ThreadingHTTPServer((host, int(port)), Handler)
-    print(f"controller: politika '{args.policy}', {len(clients)} odjemalcev, {args.listen}",
+    print(f"controller: politika '{args.policy}', {len(policy.clients)} odjemalcev, {args.listen}",
           flush=True)
     try:
         server.serve_forever()

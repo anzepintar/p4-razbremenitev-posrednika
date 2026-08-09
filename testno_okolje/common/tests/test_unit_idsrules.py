@@ -18,19 +18,7 @@ def rules(scenario):
             if line.startswith("alert")]
 
 
-def test_every_phishing_domain_gets_one_rule(rules, scenario):
+def test_one_rule_per_phishing_domain(rules, scenario):
     assert sorted(m["domain"] for m in rules) == sorted(s.domain for s in scenario.by_label("mal"))
-
-
-def test_no_rule_for_legitimate_domains(rules, scenario):
-    legit = {s.domain for s in scenario.by_label("ben")}
-    assert not legit & {m["domain"] for m in rules}
-
-
-def test_sids_are_unique(rules):
-    sids = [m["sid"] for m in rules]
-    assert len(set(sids)) == len(sids)
-
-
-def test_bsize_matches_domain_length(rules):
+    assert len({m["sid"] for m in rules}) == len(rules), "podvojen sid je napaka za Suricato"
     assert all(int(m["size"]) == len(m["domain"]) for m in rules)
