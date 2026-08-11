@@ -11,8 +11,7 @@ FLOW_LOG = Path(os.environ.get("FLOW_LOG", "/opt/traffic/out/proxy_flows.jsonl")
 
 
 class ProxyStats:
-    """Steje seje, ki jih posrednik dejansko razstavi; obidene sem ne pridejo."""
-
+    # Steje zahteve, ki jih posrednik dejansko pregleda; obidene sem ne pridejo.
     def __init__(self) -> None:
         FLOW_LOG.parent.mkdir(parents=True, exist_ok=True)
 

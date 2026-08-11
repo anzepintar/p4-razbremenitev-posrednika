@@ -4,7 +4,6 @@ ARG PI_IMAGE=p4lang/pi:latest
 FROM ${PI_IMAGE}
 
 ARG BMV2_VERSION=1.15.5
-ARG BMV2_PROFILE=perf
 ARG BMV2_OPT="-g -O3"
 
 ENV BM_DEPS="build-essential ca-certificates cmake curl git libgmp-dev libpcap-dev \
@@ -21,16 +20,13 @@ RUN apt-get update -qq \
     && apt-get install -qq --no-install-recommends $BM_DEPS $BM_RUNTIME_DEPS \
     && git clone --depth 1 --branch "$BMV2_VERSION" \
          https://github.com/p4lang/behavioral-model.git /bmv2 \
-    && if [ "$BMV2_PROFILE" = "debug" ]; then \
-         LOGFLAGS="-DENABLE_LOGGING_MACROS=ON -DENABLE_ELOGGER=ON -DENABLE_DEBUGGER=ON"; \
-       else \
-         LOGFLAGS="-DENABLE_LOGGING_MACROS=OFF -DENABLE_ELOGGER=OFF -DENABLE_DEBUGGER=OFF"; \
-       fi \
     && cmake -S /bmv2 -B /bmv2/build \
          -DCMAKE_BUILD_TYPE=Release \
          -DCMAKE_CXX_FLAGS_RELEASE="$BMV2_OPT -DNDEBUG" \
          -DCMAKE_C_FLAGS_RELEASE="$BMV2_OPT -DNDEBUG" \
-         $LOGFLAGS \
+         -DENABLE_LOGGING_MACROS=OFF \
+         -DENABLE_ELOGGER=OFF \
+         -DENABLE_DEBUGGER=OFF \
          -DWITH_PI=ON \
          -DWITH_THRIFT=ON \
          -DWITH_TARGETS=ON \

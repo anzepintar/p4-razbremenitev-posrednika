@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "client"))
 
-from runner.scenario import LABELS  # noqa: E402
+from runner.scenario import LABELS
 
 DATASET = HERE.parent.parent / "testni_podatki" / "LNU-Phish-raw_no-screenshot"
 
@@ -128,7 +128,6 @@ def collect(sources: list[str], wanted: int, seen: set[str], dataset: Path) -> l
 
 
 def mark(html: str, label: str) -> str:
-    """Oznako vstavi za <head>, sicer na zacetek dokumenta."""
     marker = MARKER.format(category=LABELS[label])
     found = HEAD.search(html)
     if found:

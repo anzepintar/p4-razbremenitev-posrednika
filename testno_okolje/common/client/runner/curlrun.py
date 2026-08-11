@@ -24,21 +24,12 @@ PROTO_FLAG = {
 
 @dataclass(frozen=True)
 class Request:
-    """En curl klic: ena stran s podviri, en protokol."""
-
     targets: tuple[Target, ...]
     proto: str
     host_header: str | None = None
 
 
-def build_argv(
-    scenario: Scenario,
-    request: Request,
-    *,
-    src_ip: str,
-    cacert: str | None = None,
-    insecure: bool = False,
-) -> list[str]:
+def build_argv(scenario: Scenario, request: Request, *, src_ip: str, cacert: str) -> list[str]:
     argv = ["curl", "--silent", "--no-progress-meter", "--show-error"]
     argv += ["--connect-timeout", str(CONNECT_TIMEOUT), "--max-time", str(MAX_TIME)]
     argv += PROTO_FLAG[request.proto]
@@ -48,10 +39,7 @@ def build_argv(
     for domain in sorted({target.domain for target in request.targets}):
         argv += ["--resolve", f"{domain}:{PORT}:{scenario.sites[domain].ip}"]
 
-    if insecure:
-        argv.append("--insecure")
-    elif cacert:
-        argv += ["--cacert", cacert]
+    argv += ["--cacert", cacert]
 
     if request.host_header:
         argv += ["--header", f"Host: {request.host_header}"]
@@ -66,12 +54,10 @@ def build_argv(
 
 
 def parse_output(stdout: str) -> list[dict]:
-    """Vsaka neprazna vrstica je en zapis."""
     return [json.loads(line) for line in stdout.splitlines() if line.strip()]
 
 
 def to_metric(record: dict, *, labels: dict) -> dict:
-    """curl zapis + oznake orkestratorja -> vrstica za metrics.jsonl."""
     curl = record.get("curl", {})
     return {
         **labels,

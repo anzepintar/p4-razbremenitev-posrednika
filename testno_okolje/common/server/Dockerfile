@@ -1,6 +1,6 @@
 FROM caddy:2
 
-RUN apk add --no-cache iproute2 tcpdump
+RUN apk add --no-cache iproute2
 
 COPY Caddyfile /etc/caddy/Caddyfile
 

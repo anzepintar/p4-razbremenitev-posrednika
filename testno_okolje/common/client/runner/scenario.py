@@ -14,7 +14,7 @@ LABELS = {"ben": "legit", "mal": "phishing"}
 
 
 class ScenarioError(ValueError):
-    """Scenarij je neveljaven."""
+    pass
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 PERCENTILES = (50, 95, 99)
 
 
 def percentile(values: list[float], pct: float) -> float | None:
-    """Metoda najblizjega ranga."""
     if not values:
         return None
     ordered = sorted(values)
@@ -14,9 +11,13 @@ def percentile(values: list[float], pct: float) -> float | None:
     return ordered[int(rank) - 1]
 
 
-def _stats(rows: list[dict]) -> dict:
-    ok = [row for row in rows if row.get("http_code") == 200]
-    times = [row["time_total"] for row in ok if row.get("time_total") is not None]
+def responded(rows: list[dict]) -> list[dict]:
+    return [row for row in rows if row.get("exitcode") == 0 and row.get("time_total") is not None]
+
+
+def stats(rows: list[dict]) -> dict:
+    ok = responded(rows)
+    times = [row["time_total"] for row in ok]
     return {
         "requests": len(rows),
         "ok": len(ok),
@@ -29,25 +30,3 @@ def _stats(rows: list[dict]) -> dict:
 
 def _ms(value: float | None) -> float | None:
     return None if value is None else round(value * 1000, 3)
-
-
-def summarize(rows: list[dict]) -> dict:
-    grouped: dict[str, dict[str, list[dict]]] = {
-        "proto": defaultdict(list),
-        "category": defaultdict(list),
-        "client": defaultdict(list),
-        "trust": defaultdict(list),
-        "http_version": defaultdict(list),
-        "fronting": defaultdict(list),
-    }
-    for row in rows:
-        for key, buckets in grouped.items():
-            buckets[str(row.get(key))].append(row)
-
-    return {
-        "total": _stats(rows),
-        **{
-            key: {name: _stats(bucket) for name, bucket in sorted(buckets.items())}
-            for key, buckets in grouped.items()
-        },
-    }

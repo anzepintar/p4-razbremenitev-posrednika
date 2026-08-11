@@ -6,7 +6,7 @@ topology:
     # eth5 = samo upravljanje (P4Runtime gRPC 10.20.1.2:9559), ni v P4 cevovodu
     switch:
       kind: linux
-      image: ${SWITCH_IMAGE:-p4-switch:latest}
+      image: p4-switch:latest
       cpu: 2
       memory: 2Gb
       binds:
@@ -22,7 +22,7 @@ topology:
     client:
       kind: linux
       image: client:latest
-      cpu: 2
+      cpu: ${CLIENT_CPU:-2}
       memory: 2Gb
       binds:
         - common:/opt/traffic

@@ -25,18 +25,13 @@ fi
 mkdir -p "$SHARED"
 cp "$BUILD"/steering.json "$BUILD"/steering.p4info.txtpb "$SHARED"/
 
-EXTRA=()
-if [ -n "${SWITCH_ARGS:-}" ]; then
-	read -r -a EXTRA <<<"$SWITCH_ARGS"
-fi
-
 PIPELINE=("$BUILD/steering.json")
 if [ "${NO_PIPELINE:-0}" = "1" ]; then
 	PIPELINE=(--no-p4)
 fi
 
-echo "start_switch: ${PORTS[*]} ${PIPELINE[*]} ${EXTRA[*]-}"
+echo "start_switch: ${PORTS[*]} ${PIPELINE[*]}"
 exec simple_switch_grpc --device-id 0 --max-port-count 8 \
-	"${PORTS[@]}" "${EXTRA[@]}" \
+	"${PORTS[@]}" \
 	"${PIPELINE[@]}" \
 	-- --grpc-server-addr 0.0.0.0:9559

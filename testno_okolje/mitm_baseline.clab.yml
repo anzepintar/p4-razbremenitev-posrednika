@@ -6,7 +6,7 @@ topology:
     client:
       kind: linux
       image: client:latest
-      cpu: 2
+      cpu: ${CLIENT_CPU:-2}
       memory: 2Gb
       binds:
         - common:/opt/traffic

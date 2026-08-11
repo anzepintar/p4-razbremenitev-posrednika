@@ -16,6 +16,10 @@ BUILD = Path("/opt/traffic/switch/build")
 P4INFO = BUILD / "steering.p4info.txtpb"
 BMV2_JSON = BUILD / "steering.json"
 
+SCENARIO = Path("/opt/traffic/scenario.yml")
+LOG = Path("/opt/traffic/out/controller.jsonl")
+LISTEN = ("0.0.0.0", 8080)
+
 TABLE = "SwitchIngress.steering"
 PORT_CLIENT = 1
 PORT_SERVER = 2
@@ -49,12 +53,12 @@ def load_policy(path: Path, name: str) -> Policy:
 
     unknown = set(mapping.values()) - set(ACTIONS)
     if unknown:
-        raise PolicyError(f"politika '{name}': neznane akcije {sorted(unknown)}")
+        raise PolicyError(f"policy '{name}': neznane akcije {sorted(unknown)}")
 
     clients = {entry["src_ip"]: entry["trust"] for entry in raw["clients"]}
     missing = {trust for trust in clients.values() if trust not in mapping}
     if missing:
-        raise PolicyError(f"politika '{name}': manjka zaupanje {sorted(missing)}")
+        raise PolicyError(f"policy '{name}': manjka zaupanje {sorted(missing)}")
 
     levels = list(raw.get("trust_levels") or [])
     off_ladder = (set(clients.values()) | set(mapping)) - set(levels)
@@ -191,31 +195,24 @@ class Controller:
 
     def bootstrap(self) -> None:
         for src_ip, trust in sorted(self.clients.items()):
-            started = time.perf_counter()
             action = self.policy[trust]
             self.steering.apply(src_ip, action)
-            self.log.write(source="bootstrap", src=src_ip, trust=trust, action=action,
-                           handle_ms=round((time.perf_counter() - started) * 1000, 4))
+            self.log.write(source="bootstrap", src=src_ip, trust=trust, action=action)
 
         # Zrcalimo obe smeri, sicer Suricata vidi le polovico toka. Vnosi v smeri
         # streznika so skupni vsem odjemalcem, zato so vezani na naslov streznika.
         if "mirror" not in self.policy.values():
             return
         for src_ip in sorted(self.servers):
-            started = time.perf_counter()
             self.steering.apply(src_ip, "mirror", port=PORT_SERVER)
             self.log.write(source="bootstrap", src=src_ip, trust=None, action="mirror",
-                           port=PORT_SERVER,
-                           handle_ms=round((time.perf_counter() - started) * 1000, 4))
+                           port=PORT_SERVER)
 
     def decide(self, src_ip: str) -> dict:
-        started = time.perf_counter()
+        # Poizvedba je del izmerjene latence, zato tu ne pisemo dnevnika.
         action = self.action_for(src_ip)
         inspect = src_ip not in self.clients or action in INSPECTED
-        handle_ms = round((time.perf_counter() - started) * 1000, 4)
-        self.log.write(source="decide", src=src_ip, trust=self.clients.get(src_ip),
-                       action="inspect" if inspect else "direct", handle_ms=handle_ms)
-        return {"action": "inspect" if inspect else "direct", "handle_ms": handle_ms}
+        return {"action": "inspect" if inspect else "direct"}
 
     def demote(self, src_ip: str) -> dict:
         with self._demote_lock:
@@ -264,28 +261,23 @@ class Controller:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="controller")
-    parser.add_argument("--scenario", type=Path, default=Path("/opt/traffic/scenario.yml"))
     parser.add_argument("--policy", default="mitm")
     parser.add_argument("--grpc-addr", default=None)
-    parser.add_argument("--listen", default="0.0.0.0:8080")
-    parser.add_argument("--log", type=Path, default=Path("/opt/traffic/out/controller.jsonl"))
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    policy = load_policy(args.scenario, args.policy)
+    policy = load_policy(SCENARIO, args.policy)
 
     steering = Steering(args.grpc_addr)
-    controller = Controller(policy.mapping, policy.clients, steering, Log(args.log),
+    controller = Controller(policy.mapping, policy.clients, steering, Log(LOG),
                             args.policy, policy.servers, policy.levels)
     controller.bootstrap()
 
-    host, _, port = args.listen.rpartition(":")
     Handler.controller = controller
-    server = ThreadingHTTPServer((host, int(port)), Handler)
-    print(f"controller: politika '{args.policy}', {len(policy.clients)} odjemalcev, {args.listen}",
-          flush=True)
+    server = ThreadingHTTPServer(LISTEN, Handler)
+    print(f"controller: policy '{args.policy}', {len(policy.clients)} odjemalcev", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

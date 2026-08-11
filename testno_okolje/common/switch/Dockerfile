@@ -12,7 +12,7 @@ RUN mkdir -p /out && p4c --target bmv2 --arch v1model \
 FROM ${BMV2_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        iproute2 ethtool tcpdump iputils-ping \
+        iproute2 ethtool \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out /opt/switch/build

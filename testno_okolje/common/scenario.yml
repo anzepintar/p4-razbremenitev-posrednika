@@ -1,5 +1,5 @@
 testset:
-  set: osnovni # osnovni (50+50) ali testni (950+50)
+  set: testni # osnovni (50+50) ali testni (950+50)
   path: /opt/traffic/server/testset
   ips: [10.0.2.10, 10.0.2.11, 10.0.2.12]
 

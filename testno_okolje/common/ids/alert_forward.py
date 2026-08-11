@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import time
@@ -9,13 +8,22 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+EVE = Path("/opt/traffic/out/eve.json")
+LOG = Path("/opt/traffic/out/alerts.jsonl")
+RULES = Path("/opt/traffic/ids/testset.rules")
+URL = "http://10.20.2.1:8080/alert"
+
+DEDUP = 10.0
+TIMEOUT = 2.0
+POLL = 0.2
+
 QUIC_SID = 2000000
 DOMAIN = re.compile(r'content:"([^"]+)"')
 
 
-def follow(path: Path, poll: float):
+def follow(path: Path):
     while not path.is_file():
-        time.sleep(poll)
+        time.sleep(POLL)
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         handle.seek(0, 2)
         while True:
@@ -23,7 +31,7 @@ def follow(path: Path, poll: float):
             if line:
                 yield line
             else:
-                time.sleep(poll)
+                time.sleep(POLL)
 
 
 def load_domains(path: Path) -> set[str]:
@@ -33,7 +41,6 @@ def load_domains(path: Path) -> set[str]:
 
 
 def as_alert(event: dict, domains: set[str]) -> dict | None:
-    """Zaznava iz dogodka; Suricata 7 nima keyworda quic.sni, zato QUIC ujamemo iz dnevnika."""
     kind = event.get("event_type")
     if kind == "alert":
         alert = event.get("alert") or {}
@@ -44,6 +51,7 @@ def as_alert(event: dict, domains: set[str]) -> dict | None:
             "source": "rule",
         }
 
+    # Suricata 7 nima keyworda quic.sni, zato QUIC ujamemo iz dogodka.
     if kind == "quic":
         sni = (event.get("quic") or {}).get("sni")
         if sni and sni in domains:
@@ -56,36 +64,26 @@ def as_alert(event: dict, domains: set[str]) -> dict | None:
     return None
 
 
-def post(url: str, payload: dict, timeout: float) -> str | None:
-    body = json.dumps(payload).encode("utf-8")
+def post(payload: dict) -> str | None:
     request = urllib.request.Request(
-        url, data=body, headers={"content-type": "application/json"}
+        URL, data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout):
+        with urllib.request.urlopen(request, timeout=TIMEOUT):
             return None
     except (urllib.error.URLError, OSError) as failure:
         return str(failure)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="alert_forward")
-    parser.add_argument("--eve", type=Path, default=Path("/opt/traffic/out/eve.json"))
-    parser.add_argument("--log", type=Path, default=Path("/opt/traffic/out/alerts.jsonl"))
-    parser.add_argument("--rules", type=Path, default=Path("/opt/traffic/ids/testset.rules"))
-    parser.add_argument("--url", default="http://10.20.2.1:8080/alert")
-    parser.add_argument("--dedup", type=float, default=10.0)
-    parser.add_argument("--timeout", type=float, default=2.0)
-    parser.add_argument("--poll", type=float, default=0.2)
-    args = parser.parse_args(argv)
-
-    args.log.parent.mkdir(parents=True, exist_ok=True)
-    domains = load_domains(args.rules)
+def main() -> int:
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    domains = load_domains(RULES)
     seen: dict[tuple[str, str], float] = {}
-    print(f"alert_forward: {args.eve} -> {args.url}, {len(domains)} domen", flush=True)
+    print(f"alert_forward: {EVE} -> {URL}, {len(domains)} domen", flush=True)
 
-    with args.log.open("a", encoding="utf-8") as sink:
-        for line in follow(args.eve, args.poll):
+    with LOG.open("a", encoding="utf-8") as sink:
+        for line in follow(EVE):
             try:
                 event = json.loads(line)
             except ValueError:
@@ -98,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             src = event.get("src_ip") or ""
             now = time.monotonic()
             key = (src, found["sni"] or str(found["sid"]))
-            if now - seen.get(key, -args.dedup) < args.dedup:
+            if now - seen.get(key, -DEDUP) < DEDUP:
                 continue
             seen[key] = now
 
@@ -109,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
                 "ts": event.get("timestamp"),
                 **found,
             }
-            payload["error"] = post(args.url, payload, args.timeout)
+            payload["error"] = post(payload)
             sink.write(json.dumps(payload, ensure_ascii=False) + "\n")
             sink.flush()
     return 0

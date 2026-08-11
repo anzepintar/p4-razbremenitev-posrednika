@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-#   ./trust.sh <topologija>      npr. ./trust.sh client_server
-#   Če v postavitvi teče mitmproxy, dodamo še njegov CA.
+#   ./trust.sh <postavitev>
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-TOPO="${1:?uporaba: trust.sh <topologija>}"
+TOPO="${1:?uporaba: trust.sh <postavitev>}"
 TIMEOUT="${TIMEOUT:-60}"
 
 SERVER="clab-${TOPO}-server"

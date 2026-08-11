@@ -3,9 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import random
-import sys
 import time
 from pathlib import Path
 
@@ -19,15 +17,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", default="/opt/traffic/scenario.yml")
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--requests", type=int, default=None)
-    parser.add_argument("--insecure", action="store_true")
-    parser.add_argument("--speed", type=float, default=1.0,
-                        help="skrci cakanje med zahtevami; zaporedje zahtev ostane isto")
+    parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--parallel", type=int, default=1)
     return parser.parse_args(argv)
 
 
 class MetricsWriter:
-    """Ena JSONL vrstica na zahtevo, serializirano med nalogami."""
-
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = path.open("w", encoding="utf-8")
@@ -111,16 +106,9 @@ async def run_client(
         think = rng.uniform(*profile.think_time) / speed
         started = time.monotonic()
 
-        argv = curlrun.build_argv(
-            scenario,
-            request,
-            src_ip=client.src_ip,
-            cacert=str(scenario.run.cacert),
-            insecure=args.insecure,
-        )
-        stdout, stderr = await _run(argv)
-        if stderr.strip():
-            print(f"[{client.id}] curl: {stderr.strip()}", file=sys.stderr)
+        argv = curlrun.build_argv(scenario, request, src_ip=client.src_ip,
+                                  cacert=str(scenario.run.cacert))
+        stdout = await _run(argv)
 
         labels = {
             "ts": round(time.time(), 6),
@@ -146,56 +134,57 @@ async def run_client(
 
 
 def _target_labels(scenario: scenario_mod.Scenario, record: dict) -> dict:
-    """Kategorijo doloci domena, ki jo je streznik dejansko postregel."""
+    # Kategorijo doloci domena, ki jo je streznik dejansko postregel.
     domain = record.get("x_domain") or ""
     site = scenario.sites.get(domain)
     return {"domain": domain or None, "category": site.category if site else None}
 
 
-async def _run(argv: list[str]) -> tuple[str, str]:
+async def _run(argv: list[str]) -> str:
     process = await asyncio.create_subprocess_exec(
-        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
     )
-    stdout, stderr = await process.communicate()
-    return stdout.decode("utf-8", "replace"), stderr.decode("utf-8", "replace")
+    stdout, _ = await process.communicate()
+    return stdout.decode("utf-8", "replace")
 
 
-def wait_for_cacert(path: Path, timeout: float = CACERT_WAIT) -> None:
-    """Caddyjev lokalni CA nastane sele ob prvem zagonu streznika."""
-    deadline = time.monotonic() + timeout
+def wait_for_cacert(path: Path) -> None:
+    deadline = time.monotonic() + CACERT_WAIT
     while time.monotonic() < deadline:
         if path.is_file() and path.stat().st_size > 0:
             return
         time.sleep(0.5)
-    raise SystemExit(f"CA '{path}' se ni pojavil v {timeout:.0f}s - ali streznik tece?")
+    raise SystemExit(f"CA '{path}' se ni pojavil v {CACERT_WAIT:.0f}s - ali streznik tece?")
 
 
 async def main_async(args: argparse.Namespace) -> int:
     scenario = scenario_mod.load(args.config)
-
-    if not args.insecure:
-        wait_for_cacert(scenario.run.cacert)
-
-    keylog = os.environ.get("SSLKEYLOGFILE")
-    if keylog:
-        Path(keylog).parent.mkdir(parents=True, exist_ok=True)
+    wait_for_cacert(scenario.run.cacert)
 
     duration = args.duration if args.duration is not None else scenario.run.duration
     deadline = None if args.requests else time.monotonic() + duration
 
     writer = MetricsWriter(scenario.run.out / "metrics.jsonl")
+    parallel = max(args.parallel, 1)
+    count = len(scenario.clients)
     try:
         await asyncio.gather(
             *(
-                run_client(scenario, client, index, writer, args, deadline, args.requests)
-                for index, client in enumerate(scenario.clients)
+                run_client(scenario, client, worker * count + position,
+                           writer, args, deadline, args.requests)
+                for position, client in enumerate(scenario.clients)
+                for worker in range(parallel)
             )
         )
     finally:
         writer.close()
 
-    summary = summarize.summarize(writer.rows)
-    summary["speed"] = args.speed
+    summary = {
+        "total": summarize.stats(writer.rows),
+        "speed": args.speed,
+        "parallel": parallel,
+        "concurrency": count * parallel,
+    }
     (scenario.run.out / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
