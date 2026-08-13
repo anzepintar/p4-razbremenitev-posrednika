@@ -1,6 +1,6 @@
-name: mitm_internet
+name: A1
 
-# Kot mitm_server, le da namesto lokalnega streznika stoji prehod, ki lab NAT-a v splet
+# Kot A0, le da namesto lokalnega streznika stoji prehod, ki lab NAT-a v splet
 # prek upravljalnega vmesnika. Za rocno preverjanje na resnicnih straneh.
 
 topology:
@@ -15,8 +15,6 @@ topology:
       exec:
         - ip link set dev eth1 address 00:00:00:00:01:0a
         - ip addr add 10.0.1.10/24 dev eth1
-        - ip addr add 10.0.1.11/24 dev eth1
-        - ip addr add 10.0.1.12/24 dev eth1
         - ip link set dev eth1 up
         - ip route replace default via 10.0.1.254 dev eth1
         # Privzeta pot gre skozi lab, zato mora tja tudi DNS.

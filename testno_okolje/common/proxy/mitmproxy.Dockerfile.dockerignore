@@ -1,0 +1,6 @@
+*
+!pyproject.toml
+!MANIFEST.in
+!README.md
+!LICENSE
+!mitmproxy/**

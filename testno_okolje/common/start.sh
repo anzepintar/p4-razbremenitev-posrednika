@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#   ./start.sh <postavitev> [--content-block]
+#   ./start.sh <postavitev> [--content-block] [--web]
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -9,19 +9,26 @@ SUDO="${SUDO-sudo}"
 MITM_CA=/data/mitmproxy/mitmproxy-ca-cert.pem
 GRPC=10.20.1.2:9559
 PROBE_URL="${PROBE_URL:-https://quic.anzepintar.com/}"
+WEB_PASSWORD="${WEB_PASSWORD:-diploma}"
 
-TOPO="${1:?uporaba: start.sh <postavitev> [--content-block]}"
+TOPO="${1:?uporaba: start.sh <postavitev> [--content-block] [--web]}"
 TOPO_FILE=../$TOPO.clab.yml
+shift
 CONTENT_BLOCK=0
-if [ "${2:-}" = "--content-block" ]; then
-	CONTENT_BLOCK=1
-fi
+WEB=0
+for arg in "$@"; do
+	case "$arg" in
+	--content-block) CONTENT_BLOCK=1 ;;
+	--web) WEB=1 ;;
+	*) echo "start.sh: neznana zastavica '$arg'" >&2; exit 2 ;;
+	esac
+done
 
 case "$TOPO" in
-mitm_server)      HAS_SWITCH=0 HAS_SERVER=1 ;;
-p4_mitm_server)   HAS_SWITCH=1 HAS_SERVER=1 ;;
-mitm_internet)    HAS_SWITCH=0 HAS_SERVER=0 ;;
-p4_mitm_internet) HAS_SWITCH=1 HAS_SERVER=0 ;;
+A0) HAS_SWITCH=0 HAS_SERVER=1 ;;
+A1) HAS_SWITCH=0 HAS_SERVER=0 ;;
+B0) HAS_SWITCH=1 HAS_SERVER=1 ;;
+B1) HAS_SWITCH=1 HAS_SERVER=0 ;;
 *) echo "start.sh: neznana postavitev '$TOPO'" >&2; exit 2 ;;
 esac
 
@@ -61,10 +68,10 @@ if [ "$HAS_SWITCH" = 1 ]; then
 
 	docker exec "$(node mitm)" \
 		/opt/p4venv/bin/python /opt/proxy/steer.py --grpc-addr "$GRPC" >>"$OUT/steer.log" 2>&1 || {
-		echo "start.sh: usmerjanja ni bilo mogoce zapisati, glej $OUT/steer.log" >&2
+		echo "start.sh: seznamov ni bilo mogoce zapisati, glej $OUT/steer.log" >&2
 		exit 1
 	}
-	phase "steering zapisano"
+	phase "seznami zapisani v stikalo"
 fi
 
 if [ "$HAS_SERVER" = 1 ]; then
@@ -84,7 +91,7 @@ from runner import scenario as scenario_mod
 
 scenario = scenario_mod.load("scenario.yml", testset="server/testset")
 for site in sorted(scenario.sites.values(), key=lambda s: s.domain):
-    print(site.domain, site.ip, site.label)
+    print(site.domain, scenario.server_ip, site.label)
 PY
 
 	warmed=$(timeout "${WARMUP_TIMEOUT:-600}" docker exec "$(node server)" sh -c '
@@ -102,9 +109,25 @@ PY
 	fi
 fi
 
-ADDONS=(-s /opt/proxy/proxy_stats.py)
+ADDONS=(-s /opt/proxy/proxy_stats.py -s /opt/proxy/sni_block.py)
 if [ "$CONTENT_BLOCK" = 1 ]; then
 	ADDONS+=(-s /opt/proxy/content_block.py)
+fi
+
+# Beli seznam posrednik le tunelira, zato teh sej ne desifrira in jih ne vidi.
+IGNORE=()
+WHITE=$(python3 - <<'PY'
+import sys
+
+sys.path.insert(0, ".")
+import sni
+
+print(sni.ignore_hosts(sni.load("domain")["white"]))
+PY
+)
+if [ -n "$WHITE" ]; then
+	IGNORE=(--ignore-hosts "$WHITE")
+	phase "beli seznam: $(printf '%s' "$WHITE" | tr '|' '\n' | wc -l) domen brez pregleda"
 fi
 
 # Navzgor preverjamo Caddyjev CA le v lab postavitvah; v splet gre s sistemsko zalogo.
@@ -113,11 +136,21 @@ if [ "$HAS_SERVER" = 1 ]; then
 	UPSTREAM=(--set ssl_verify_upstream_trusted_ca=/opt/traffic/pki/trust.pem)
 fi
 
-docker exec -d "$(node mitm)" sh -c 'exec mitmdump "$@" >>/opt/traffic/out/mitm.log 2>&1' _ \
+TOOL=mitmdump
+WEB_OPTS=()
+if [ "$WEB" = 1 ]; then
+	TOOL=mitmweb
+	WEB_OPTS=(--web-host 0.0.0.0 --no-web-open-browser
+		--set web_password="$WEB_PASSWORD")
+fi
+
+docker exec -d "$(node mitm)" sh -c 'exec "$@" >>/opt/traffic/out/mitm.log 2>&1' _ "$TOOL" \
 	--mode transparent@8080 \
 	--showhost \
 	--set confdir=/data/mitmproxy \
 	"${UPSTREAM[@]}" \
+	"${IGNORE[@]}" \
+	"${WEB_OPTS[@]}" \
 	"${ADDONS[@]}"
 
 docker exec "$(node mitm)" sh -c '
@@ -133,6 +166,13 @@ done
 ./trust.sh "$TOPO" >/dev/null
 wait_port mitm 8080
 phase "proxy running"
+
+if [ "$WEB" = 1 ]; then
+	wait_port mitm 8081
+	MITM_IP=$(docker inspect -f \
+		'{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(node mitm)")
+	phase "web GUI: http://$MITM_IP:8081/?token=$WEB_PASSWORD"
+fi
 
 if [ "$HAS_SERVER" = 1 ]; then
 	read -r PROBE_DOMAIN PROBE_IP _ <<<"$(awk '$3 == "ben" {print; exit}' "$OUT/warmup.txt")"

@@ -9,4 +9,5 @@ clab-*/
 __pycache__/
 *.pyc
 dokumentacija/zapiski/*
-mitmproxy/
+mitmproxy-quic-transparent/
+P4-TLS/

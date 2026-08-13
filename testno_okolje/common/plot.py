@@ -13,17 +13,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, ScalarFormatter
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "client"))
 
+import sni
 from runner.summarize import percentile, responded, stats
 
 CONTENT = "-content"
 
-TOPOLOGIES = ("mitm_server", "p4_mitm_server")
+TOPOLOGIES = ("A0", "B0")
 
 LABELS = {
-    "mitm_server": "posrednik",
-    "p4_mitm_server": "P4 + posrednik",
+    "A0": "A0 posrednik",
+    "B0": "B0 P4 + posrednik",
 }
 
 ERROR_BUDGET = 1.0
@@ -144,12 +146,13 @@ def ecdf_chart(runs: list[str], metrics: dict, out: Path) -> None:
 
 
 def detection_chart(runs: list[str], metrics: dict, out: Path) -> None:
-    blocked, missed, fronted = [], [], []
+    switch, blocked, missed, fronted = [], [], [], []
     for run in runs:
         phishing = [p for p in pages(metrics[run]) if p["category"] == "phishing"]
-        blocked.append(sum(1 for p in phishing if p["blocked"]))
-        missed.append(sum(1 for p in phishing if not p["blocked"]))
-        fronted.append(sum(1 for p in phishing if p["fronting"]))
+        switch.append(sum(1 for p in phishing if p["switch"]))
+        blocked.append(sum(1 for p in phishing if p["blocked"] and not p["switch"]))
+        missed.append(sum(1 for p in phishing if not p["blocked"] and not p["switch"]))
+        fronted.append(sum(1 for p in phishing if p["fronting"] and not p["switch"]))
 
     fig, axes = figure(height=0.7 * len(runs) + 1.8, width=8)
     ax = axes[0]
@@ -157,7 +160,8 @@ def detection_chart(runs: list[str], metrics: dict, out: Path) -> None:
     ys = range(len(runs))
     left = [0] * len(runs)
 
-    for values, fill, legend in ((blocked, None, "blokirano po vsebini"),
+    for values, fill, legend in ((switch, None, "zavrnjeno na stikalu (SNI)"),
+                                 (blocked, None, "blokirano po vsebini"),
                                  (missed, "lightgrey", "nezaznano")):
         ax.barh(ys, values, left=left, color=fill, label=legend, height=0.6)
         left = [a + b for a, b in zip(left, values)]
@@ -173,7 +177,7 @@ def detection_chart(runs: list[str], metrics: dict, out: Path) -> None:
     ax.set_xlabel("phishing nalaganj strani")
     ax.set_xlim(0, max(left + [1]) * 1.22)
     ax.margins(y=0.12)
-    ax.legend(ncols=2, loc="upper center", bbox_to_anchor=(0.5, -0.18))
+    ax.legend(ncols=3, loc="upper center", bbox_to_anchor=(0.5, -0.18))
     save(fig, "zaznava.png", out)
 
 
@@ -269,16 +273,26 @@ def ramp_chart(ramps: dict[str, list[dict]], out: Path) -> None:
     save(fig, "ramp.png", out)
 
 
+BLACK = sni.load("domain")["black"]
+
+
+def dropped_at_switch(row: dict) -> bool:
+    return bool(row.get("exitcode")) and sni.blocks(BLACK, row.get("sni"))
+
+
 def pages(rows: list[dict]) -> list[dict]:
     grouped: dict[tuple, dict] = {}
     for row in rows:
         page = grouped.setdefault((row["client"], row["ts"]),
-                                  {"category": None, "blocked": False,
+                                  {"category": None, "blocked": False, "switch": False,
                                    "fronting": row.get("fronting"), "sni": row.get("sni")})
         if row.get("category"):
             page["category"] = row["category"]
         if row.get("blocked"):
             page["blocked"] = True
+        if dropped_at_switch(row):
+            page["switch"] = True
+            page["category"] = page["category"] or "phishing"
     return list(grouped.values())
 
 
@@ -310,10 +324,11 @@ def throughput(rows: list[dict]) -> dict:
 def detection(rows: list[dict]) -> dict:
     matrix = {"TP": 0, "FP": 0, "TN": 0, "FN": 0}
     for row in rows:
-        if row.get("category") is None:
+        switch = dropped_at_switch(row)
+        if row.get("category") is None and not switch:
             continue
-        phish = row["category"] == "phishing"
-        blocked = bool(row.get("blocked"))
+        phish = switch or row.get("category") == "phishing"
+        blocked = switch or bool(row.get("blocked"))
         matrix[("TP" if blocked else "FN") if phish else ("FP" if blocked else "TN")] += 1
     matrix["recall_pct"] = ratio(matrix["TP"], matrix["TP"] + matrix["FN"])
     matrix["precision_pct"] = ratio(matrix["TP"], matrix["TP"] + matrix["FP"])
@@ -337,7 +352,7 @@ def proxy_share(ifstats: dict) -> float | None:
 
 def caught_share(rows: list[dict]) -> float | None:
     phishing = [p for p in pages(rows) if p["category"] == "phishing"]
-    return ratio(sum(1 for p in phishing if p["blocked"]), len(phishing))
+    return ratio(sum(1 for p in phishing if p["blocked"] or p["switch"]), len(phishing))
 
 
 def level_stats(rows: list[dict], summary: dict) -> dict:
@@ -383,6 +398,7 @@ def load_latency(base: Path) -> tuple[list[str], dict, dict]:
             "caught_pct": caught_share(rows),
             "to_proxy_pct": proxy_share(read_json(base / run / "ifstats.json")),
             "requests_at_proxy": len(read_jsonl(base / run / "proxy_flows.jsonl")),
+            "switch_sni": read_json(base / run / "switch_sni.json") or None,
         }
     return runs, metrics, numbers
 

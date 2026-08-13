@@ -1,0 +1,5 @@
+# Domene, ki jih posrednik le tunelira - brez desifriranja in brez potrdila.
+# Ena na vrstico, # je opomba, zacetna pika velja za vse poddomene (.primer.com).
+
+anzepintar.com
+quic.anzepintar.com

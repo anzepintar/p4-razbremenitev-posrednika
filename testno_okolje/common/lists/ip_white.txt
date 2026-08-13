@@ -1,0 +1,3 @@
+# Naslovi, ki gredo mimo posrednika naravnost na streznik oziroma v splet.
+# Naslov, predpona CIDR ali domena (razresi se ob zagonu), ena na vrstico.
+

@@ -5,7 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 BMV2_VERSION="${BMV2_VERSION:-1.15.5}"
 BMV2_IMAGE="bmv2-perf:$BMV2_VERSION"
-MITM_SRC="${MITM_SRC:-../../../05-MITMPROXY-FORK/mitmproxy}"
+MITM_SRC="${MITM_SRC:-../../mitmproxy-quic-transparent}"
 MITM_IMAGE="${MITM_IMAGE:-mitmproxy-quic:latest}"
 
 python3 gen_caddyfile.py
@@ -20,7 +20,7 @@ if [ -z "$(docker images -q "$MITM_IMAGE")" ]; then
 		echo "build.sh: forka mitmproxy ni v $MITM_SRC (nastavi MITM_SRC)" >&2
 		exit 1
 	}
-	docker build -t "$MITM_IMAGE" -f "$MITM_SRC/clab/Dockerfile.mitmproxy" "$MITM_SRC"
+	docker build -t "$MITM_IMAGE" -f proxy/mitmproxy.Dockerfile "$MITM_SRC"
 fi
 
 docker build -t proxy:latest \

@@ -21,7 +21,6 @@ class ScenarioError(ValueError):
 class Site:
     domain: str
     label: str
-    ip: str
 
     @property
     def category(self) -> str:
@@ -42,7 +41,6 @@ class Profile:
 class Client:
     id: str
     src_ip: str
-    trust: str
     profile: str
 
 
@@ -67,12 +65,10 @@ class Scenario:
     clients: tuple[Client, ...]
     profiles: dict[str, Profile]
     run: Run
+    server_ip: str
 
-    def domains_by_ip(self) -> dict[str, list[str]]:
-        grouped: dict[str, list[str]] = {}
-        for site in self.sites.values():
-            grouped.setdefault(site.ip, []).append(site.domain)
-        return {ip: sorted(names) for ip, names in sorted(grouped.items())}
+    def domains(self) -> list[str]:
+        return sorted(self.sites)
 
     def by_label(self, label: str) -> list[Site]:
         return sorted((s for s in self.sites.values() if s.label == label), key=lambda s: s.domain)
@@ -84,34 +80,26 @@ class Scenario:
         return self.run.root / domain / "index.html"
 
 
-def assign_ips(domains: list[str], ips: list[str]) -> dict[str, str]:
-    return {domain: ips[index % len(ips)] for index, domain in enumerate(sorted(domains))}
-
-
-def load_sites(manifest: Path, ips: list[str]) -> dict[str, Site]:
+def load_sites(manifest: Path) -> dict[str, Site]:
     raw = json.loads(manifest.read_text(encoding="utf-8"))
-    mapping = assign_ips([entry["domain"] for entry in raw], ips)
     return {
-        entry["domain"]: Site(
-            domain=entry["domain"],
-            label=entry["label"],
-            ip=mapping[entry["domain"]],
-        )
-        for entry in raw
+        entry["domain"]: Site(domain=entry["domain"], label=entry["label"]) for entry in raw
     }
 
 
 def load(path: str | Path, *, testset: str | Path | None = None) -> Scenario:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
-    run, ips = _load_run(raw["run"], raw["testset"], testset)
-    sites = load_sites(run.root / "sites.json", ips)
+    run, server_ip = _load_run(raw["run"], raw["testset"], testset)
+    sites = load_sites(run.root / "sites.json")
     profiles = _load_profiles(raw["profiles"], sites)
     clients = _load_clients(raw["clients"], profiles)
-    return Scenario(sites=sites, clients=clients, profiles=profiles, run=run)
+    return Scenario(
+        sites=sites, clients=clients, profiles=profiles, run=run, server_ip=server_ip
+    )
 
 
-def _load_run(raw: dict, testset_cfg: dict, override: str | Path | None) -> tuple[Run, list[str]]:
+def _load_run(raw: dict, testset_cfg: dict, override: str | Path | None) -> tuple[Run, str]:
     path = override if override is not None else testset_cfg["path"]
     run = Run(
         duration=float(raw.get("duration", 60)),
@@ -124,7 +112,7 @@ def _load_run(raw: dict, testset_cfg: dict, override: str | Path | None) -> tupl
     )
     if not run.root.is_dir():
         raise ScenarioError(f"nabora '{run.subset}' ni v {run.testset}")
-    return run, list(testset_cfg["ips"])
+    return run, str(testset_cfg["ip"])
 
 
 def _load_profiles(raw: dict, sites: dict[str, Site]) -> dict[str, Profile]:
@@ -159,11 +147,6 @@ def _load_clients(raw: list, profiles: dict[str, Profile]) -> tuple[Client, ...]
         if entry["profile"] not in profiles:
             raise ScenarioError(f"odjemalec '{entry['id']}': neznan profil '{entry['profile']}'")
         clients.append(
-            Client(
-                id=entry["id"],
-                src_ip=entry["src_ip"],
-                trust=entry["trust"],
-                profile=entry["profile"],
-            )
+            Client(id=entry["id"], src_ip=entry["src_ip"], profile=entry["profile"])
         )
     return tuple(clients)

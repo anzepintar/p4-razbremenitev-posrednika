@@ -37,7 +37,7 @@ def build_argv(scenario: Scenario, request: Request, *, src_ip: str, cacert: str
     argv += ["--interface", src_ip]
 
     for domain in sorted({target.domain for target in request.targets}):
-        argv += ["--resolve", f"{domain}:{PORT}:{scenario.sites[domain].ip}"]
+        argv += ["--resolve", f"{domain}:{PORT}:{scenario.server_ip}"]
 
     argv += ["--cacert", cacert]
 

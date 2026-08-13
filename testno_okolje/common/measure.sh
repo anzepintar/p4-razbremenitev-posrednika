@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#   ./measure.sh latency "mitm_server p4_mitm_server" 40 [--content-block]
-#   ./measure.sh ramp "p4_mitm_server" "1 2 4 8 16" [--content-block]
+#   ./measure.sh latency "A0 B0" 40 [--content-block]
+#   ./measure.sh ramp "B0" "1 2 4 8 16" [--content-block]
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -31,10 +31,10 @@ esac
 
 for topo in $TOPOS; do
 	case "$topo" in
-	mitm_server | p4_mitm_server) ;;
+	A0 | B0) ;;
 	*)
 		echo "measure.sh: '$topo' ni merljiva - runner potrebuje lokalni testni nabor," \
-			"na voljo sta mitm_server in p4_mitm_server" >&2
+			"na voljo sta A0 in B0" >&2
 		exit 2
 		;;
 	esac
@@ -61,7 +61,7 @@ else
 	export CLIENT_CPU="${CLIENT_CPU:-2}"
 fi
 
-ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl"
+ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl switch_sni.json"
 
 cleanup() {
 	if [ -n "$CURRENT" ]; then
@@ -89,6 +89,14 @@ run() {
 		echo "measure.sh: $topo ni dal meritev - poglej izpis 'clab exec' zgoraj." >&2
 		exit 1
 	fi
+
+	case "$topo" in
+	B0 | B1)
+		docker exec "clab-$topo-mitm" /opt/p4venv/bin/python /opt/proxy/steer.py \
+			--grpc-addr 10.20.1.2:9559 --stats /opt/traffic/out/switch_sni.json \
+			>>"$OUT/steer.log" 2>&1 || echo "measure.sh: stevcev SNI ni bilo mogoce prebrati" >&2
+		;;
+	esac
 
 	mkdir -p "$dest"
 	if [ "$KIND" = latency ]; then

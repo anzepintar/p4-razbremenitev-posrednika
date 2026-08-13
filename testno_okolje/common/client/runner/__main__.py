@@ -67,12 +67,7 @@ def build_request(
             if label == "mal"
             else rng.choice([s.domain for s in scenario.by_label("mal")])
         )
-        cover_pool = [
-            site.domain
-            for site in scenario.by_label("ben")
-            if site.ip == scenario.sites[hidden].ip
-        ] or [site.domain for site in scenario.by_label("ben")]
-        cover = rng.choice(cover_pool)
+        cover = rng.choice([site.domain for site in scenario.by_label("ben")])
         targets = (urls.Target(domain=cover, path=scenario_mod.INDEX),)
         request = curlrun.Request(targets=targets, proto=proto, host_header=hidden)
         return request, hidden, True
@@ -113,7 +108,6 @@ async def run_client(
         labels = {
             "ts": round(time.time(), 6),
             "client": client.id,
-            "trust": client.trust,
             "profile": profile.name,
             "page": page_domain,
             "proto": request.proto,

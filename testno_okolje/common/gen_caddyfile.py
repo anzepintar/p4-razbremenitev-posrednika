@@ -29,7 +29,6 @@ HEADER = """# Nastalo iz {manifest} - ne urejaj rocno, popravi gen_caddyfile.py.
 
 BLOCK = """
 {addresses} {{
-	bind {ip}
 	import site
 }}
 """
@@ -40,16 +39,14 @@ def render(scenario: scenario_mod.Scenario) -> str:
         manifest=f"testset/{scenario.run.subset}/sites.json",
         root=f"{ROOT}/{scenario.run.subset}",
     )
-    for ip, domains in scenario.domains_by_ip().items():
-        addresses = ",\n".join(f"https://{domain}" for domain in domains)
-        text += BLOCK.format(addresses=addresses, ip=ip)
-    return text
+    addresses = ",\n".join(f"https://{domain}" for domain in scenario.domains())
+    return text + BLOCK.format(addresses=addresses)
 
 
 def main() -> int:
     scenario = scenario_mod.load(HERE / "scenario.yml", testset=TESTSET)
     OUT.write_text(render(scenario), encoding="utf-8")
-    print(f"{OUT}: {len(scenario.sites)} domen na {len(scenario.domains_by_ip())} naslovih")
+    print(f"{OUT}: {len(scenario.sites)} domen na {scenario.server_ip}")
     return 0
 
 
