@@ -17,26 +17,14 @@ sys.path.insert(0, str(HERE / "client"))
 
 from runner.summarize import percentile, responded, stats
 
-TOPOLOGIES = (
-    "client_server",
-    "mitm_baseline",
-    "mitm_controller",
-    "p4_baseline",
-    "p4_controller_mitm",
-    "p4_controller_ids",
-    "p4_full",
-)
+CONTENT = "-content"
+
+TOPOLOGIES = ("mitm_server", "p4_mitm_server")
 
 LABELS = {
-    "client_server": "brez posrednika",
-    "mitm_baseline": "posrednik",
-    "mitm_controller": "posrednik + krmilnik",
-    "p4_baseline": "P4",
-    "p4_controller_mitm": "P4 + posrednik",
-    "p4_controller_ids": "P4 + IDS",
-    "p4_full": "P4 + posrednik + IDS",
+    "mitm_server": "posrednik",
+    "p4_mitm_server": "P4 + posrednik",
 }
-CONTENT = "-content"
 
 ERROR_BUDGET = 1.0
 
@@ -51,17 +39,17 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
-def topology(run: str) -> str:
-    return run[: -len(CONTENT)] if run.endswith(CONTENT) else run
-
-
 def dashes(run: str) -> str:
     return ":" if run.endswith(CONTENT) else "-"
 
 
+def topology(run: str) -> str:
+    return run[: -len(CONTENT)] if run.endswith(CONTENT) else run
+
+
 def label(run: str) -> str:
     text = LABELS[topology(run)]
-    return f"{text}" if run.endswith(CONTENT) else text
+    return f"{text} + pregled vsebine" if run.endswith(CONTENT) else text
 
 
 def tick(run: str) -> str:
@@ -77,14 +65,6 @@ def discover(base: Path) -> list[str]:
     if not base.is_dir():
         return []
     return order([p.name for p in base.iterdir() if p.is_dir() and topology(p.name) in TOPOLOGIES])
-
-
-def panels(runs: list[str]) -> list[tuple[str, list[str]]]:
-    split = [
-        ("Brez stikala", [r for r in runs if not r.startswith("p4_")]),
-        ("Prek stikala P4", [r for r in runs if r.startswith("p4_")]),
-    ]
-    return [(title, members) for title, members in split if members]
 
 
 def figure(cols: int = 1, height: float = 4.4, width: float = 5.6):
@@ -104,94 +84,80 @@ def save(fig, name: str, out: Path) -> None:
     print(f"  {out / name}")
 
 
-def grouped_bars(runs: list[str], values, series, title: str, ylabel: str, name: str,
-                 out: Path) -> None:
-    groups = panels(runs)
-    fig, axes = figure(len(groups))
+def grouped_bars(runs: list[str], values, series, ylabel: str, name: str, out: Path) -> None:
+    fig, axes = figure(width=8.0)
+    ax = axes[0]
+    grid(ax)
 
-    for ax, (panel, members) in zip(axes, groups):
-        grid(ax)
-        width = 0.8 / len(series)
-        for index, (key, legend) in enumerate(series):
-            offset = (index - (len(series) - 1) / 2) * width
-            heights = [values[run].get(key) or 0 for run in members]
-            bars = ax.bar([i + offset for i in range(len(members))], heights, width * 0.9,
-                          label=legend)
-            ax.bar_label(bars, fmt="%.0f", padding=2, fontsize=8)
+    width = 0.8 / len(series)
+    for index, (key, legend) in enumerate(series):
+        offset = (index - (len(series) - 1) / 2) * width
+        heights = [values[run].get(key) or 0 for run in runs]
+        bars = ax.bar([i + offset for i in range(len(runs))], heights, width * 0.9, label=legend)
+        ax.bar_label(bars, fmt="%.0f", padding=2, fontsize=8)
 
-        ax.set_xticks(range(len(members)))
-        ax.set_xticklabels([tick(run) for run in members], fontsize=8)
-        ax.set_title(panel, loc="left")
-        ax.set_ylabel(ylabel)
-        ax.margins(y=0.18)
+    ax.set_xticks(range(len(runs)))
+    ax.set_xticklabels([tick(run) for run in runs], fontsize=8)
+    ax.set_ylabel(ylabel)
+    ax.margins(y=0.18)
 
-    handles, legends = axes[0].get_legend_handles_labels()
+    handles, legends = ax.get_legend_handles_labels()
     fig.legend(handles, legends, ncols=len(series), loc="lower center",
-               bbox_to_anchor=(0.5, -0.08))
-    fig.suptitle(title, x=0.02, ha="left")
+               bbox_to_anchor=(0.5, -0.12))
     save(fig, name, out)
 
 
 def latency_chart(runs: list[str], numbers: dict, out: Path) -> None:
-    grouped_bars(runs, numbers,
-                 [("p50_ms", "p50"), ("p95_ms", "p95"), ("p99_ms", "p99")],
-                 "Latenca po postavitvah", "latenca zahteve (ms)", "latence.png", out)
+    grouped_bars(runs, numbers, [("p50_ms", "p50"), ("p95_ms", "p95"), ("p99_ms", "p99")],
+                 "latenca zahteve (ms)", "latence.png", out)
 
 
 def throughput_chart(runs: list[str], numbers: dict, out: Path) -> None:
-    grouped_bars(runs, numbers,
-                 [("p50_Mbps", "p50"), ("p95_Mbps", "p95")],
-                 "Hitrost prenosa po postavitvah", "hitrost zahteve (Mb/s)",
-                 "hitrost.png", out)
+    grouped_bars(runs, numbers, [("p50_Mbps", "p50"), ("p95_Mbps", "p95")],
+                 "hitrost zahteve (Mb/s)", "hitrost.png", out)
 
 
 def ecdf_chart(runs: list[str], metrics: dict, out: Path) -> None:
-    groups = panels(runs)
-    fig, axes = figure(len(groups))
+    fig, axes = figure()
+    ax = axes[0]
+    grid(ax, axis="both")
 
-    for ax, (panel, members) in zip(axes, groups):
-        grid(ax, axis="both")
-        handles = []
-        for run in members:
-            times = sorted(row["time_total"] * 1000 for row in responded(metrics[run]))
-            if not times:
-                continue
-            share = [(i + 1) / len(times) for i in range(len(times))]
-            line, = ax.plot(times, share, linestyle=dashes(run), linewidth=2, label=label(run))
-            handles.append(line)
+    handles = []
+    for run in runs:
+        times = sorted(row["time_total"] * 1000 for row in responded(metrics[run]))
+        if not times:
+            continue
+        share = [(i + 1) / len(times) for i in range(len(times))]
+        line, = ax.plot(times, share, linestyle=dashes(run), linewidth=2, label=label(run))
+        handles.append(line)
 
-        ax.set_xscale("log")
-        ax.xaxis.set_major_formatter(ScalarFormatter())
-        ax.xaxis.set_minor_locator(LogLocator(base=10, subs=(2.0, 5.0)))
-        ax.xaxis.set_minor_formatter(ScalarFormatter())
-        ax.set_ylim(0, 1.06)
-        ax.set_title(panel, loc="left")
-        ax.set_xlabel("latenca zahteve (ms, log)")
-        ax.set_ylabel("delež zahtev")
-        ax.legend(handles=handles, ncols=2, loc="upper center", bbox_to_anchor=(0.5, -0.16))
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    ax.xaxis.set_minor_locator(LogLocator(base=10, subs=(2.0, 5.0)))
+    ax.xaxis.set_minor_formatter(ScalarFormatter())
+    ax.set_ylim(0, 1.06)
+    ax.set_xlabel("latenca zahteve (ms, log)")
+    ax.set_ylabel("delež zahtev")
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.16))
 
-    fig.suptitle("Porazdelitev latenc", x=0.02, ha="left")
     save(fig, "porazdelitev.png", out)
 
 
-def detection_chart(runs: list[str], metrics: dict, alerts: dict, out: Path) -> None:
-    blocked, by_ids, missed, fronted = [], [], [], []
+def detection_chart(runs: list[str], metrics: dict, out: Path) -> None:
+    blocked, missed, fronted = [], [], []
     for run in runs:
         phishing = [p for p in pages(metrics[run]) if p["category"] == "phishing"]
-        flagged = {a.get("sni") for a in alerts.get(run, [])}
         blocked.append(sum(1 for p in phishing if p["blocked"]))
-        by_ids.append(sum(1 for p in phishing if not p["blocked"] and p["sni"] in flagged))
-        missed.append(sum(1 for p in phishing if not p["blocked"] and p["sni"] not in flagged))
+        missed.append(sum(1 for p in phishing if not p["blocked"]))
         fronted.append(sum(1 for p in phishing if p["fronting"]))
 
-    fig, axes = figure(height=0.55 * len(runs) + 2.4, width=10)
+    fig, axes = figure(height=0.7 * len(runs) + 1.8, width=8)
     ax = axes[0]
     grid(ax, axis="x")
     ys = range(len(runs))
     left = [0] * len(runs)
 
     for values, fill, legend in ((blocked, None, "blokirano po vsebini"),
-                                 (by_ids, None, "IDS ujel po SNI"),
                                  (missed, "lightgrey", "nezaznano")):
         ax.barh(ys, values, left=left, color=fill, label=legend, height=0.6)
         left = [a + b for a, b in zip(left, values)]
@@ -206,9 +172,8 @@ def detection_chart(runs: list[str], metrics: dict, alerts: dict, out: Path) -> 
     ax.invert_yaxis()
     ax.set_xlabel("phishing nalaganj strani")
     ax.set_xlim(0, max(left + [1]) * 1.22)
-    ax.legend(ncols=3, loc="upper center", bbox_to_anchor=(0.5, -0.12))
-    fig.suptitle(f"Kaj katera postavitev ujame ({max(left + [0])} phishing strani na zagon)",
-                 x=0.02, ha="left")
+    ax.margins(y=0.12)
+    ax.legend(ncols=2, loc="upper center", bbox_to_anchor=(0.5, -0.18))
     save(fig, "zaznava.png", out)
 
 
@@ -217,12 +182,12 @@ def load_chart(runs: list[str], numbers: dict, out: Path) -> None:
     if not present:
         return
 
-    fig, axes = figure(2, height=0.5 * len(present) + 2.2, width=5.0)
+    fig, axes = figure(2, height=0.7 * len(present) + 1.6, width=5.0)
     ys = range(len(present))
-    columns = (("to_proxy_pct", "Omrežna cena", "paketov do posrednika (%)"),
-               ("requests_at_proxy", "Procesorska cena", "zahtev, ki jih posrednik pregleda"))
+    columns = (("to_proxy_pct", "paketov do posrednika (%)"),
+               ("requests_at_proxy", "zahtev, ki jih posrednik pregleda"))
 
-    for index, (ax, (key, title, unit)) in enumerate(zip(axes, columns)):
+    for index, (ax, (key, unit)) in enumerate(zip(axes, columns)):
         grid(ax, axis="x")
         values = [numbers[run][key] or 0 for run in present]
         bars = ax.barh(ys, values, 0.6)
@@ -230,11 +195,9 @@ def load_chart(runs: list[str], numbers: dict, out: Path) -> None:
         ax.set_yticks(list(ys))
         ax.set_yticklabels([label(run) for run in present] if index == 0 else [])
         ax.invert_yaxis()
-        ax.set_title(title, loc="left")
         ax.set_xlabel(unit)
-        ax.margins(x=0.18)
+        ax.margins(x=0.18, y=0.12)
 
-    fig.suptitle("Obremenitev posrednika po postavitvah", x=0.02, ha="left")
     save(fig, "obremenitev.png", out)
 
 
@@ -264,8 +227,6 @@ def cost_benefit_chart(runs: list[str], numbers: dict, out: Path) -> None:
     ax.set_ylim(-6, 112)
     ax.set_xlabel("delež paketov odjemalca, ki pripotujejo do posrednika (%)")
     ax.set_ylabel("ujetih phishing strani (%)")
-    fig.suptitle("Cena in učinek: manj prometa na posredniku ob enaki zaznavi",
-                 x=0.02, ha="left")
     save(fig, "cena_ucinek.png", out)
 
 
@@ -284,7 +245,6 @@ def ramp_chart(ramps: dict[str, list[dict]], out: Path) -> None:
     speed.set_xscale("log", base=2)
     speed.set_xticks(steps)
     speed.xaxis.set_major_formatter(ScalarFormatter())
-    speed.set_title("Hitrost prenosa", loc="left")
     speed.set_ylabel("hitrost (Mb/s)")
 
     grid(errors)
@@ -299,15 +259,13 @@ def ramp_chart(ramps: dict[str, list[dict]], out: Path) -> None:
     errors.axhline(ERROR_BUDGET, linestyle="--", linewidth=1, color="black")
     errors.set_xticks(range(len(steps)))
     errors.set_xticklabels(steps)
-    errors.set_title("Napake", loc="left")
     errors.set_ylabel("delež napak (%)")
 
     for ax in axes:
         ax.set_xlabel("sočasnih nalaganj strani")
         ax.margins(y=0.18)
 
-    fig.legend(handles=handles, ncols=3, loc="lower center", bbox_to_anchor=(0.5, -0.1))
-    fig.suptitle("Nasičenje: hitrost in napake glede na obremenitev", x=0.02, ha="left")
+    fig.legend(handles=handles, ncols=2, loc="lower center", bbox_to_anchor=(0.5, -0.1))
     save(fig, "ramp.png", out)
 
 
@@ -377,26 +335,9 @@ def proxy_share(ifstats: dict) -> float | None:
     return round(100 * reached / sent, 1)
 
 
-def caught_share(rows: list[dict], alerts: list[dict]) -> float | None:
+def caught_share(rows: list[dict]) -> float | None:
     phishing = [p for p in pages(rows) if p["category"] == "phishing"]
-    flagged = {a.get("sni") for a in alerts}
-    caught = sum(1 for p in phishing if p["blocked"] or p["sni"] in flagged)
-    return ratio(caught, len(phishing))
-
-
-def reaction(rows: list[dict]) -> dict | None:
-    demotions = [r for r in rows if r.get("source") == "demote"]
-    if not demotions:
-        return None
-    changed = [r for r in demotions if r.get("changed")]
-    times = [r["reaction_ms"] for r in changed if r.get("reaction_ms") is not None]
-    return {
-        "detections": len(demotions),
-        "path_changes": len(changed),
-        "via_proxy": sorted({r["src"] for r in changed if r.get("action_after") == "via_mitm"}),
-        "reaction_p50_ms": round(percentile(times, 50), 4) if times else None,
-        "reaction_p95_ms": round(percentile(times, 95), 4) if times else None,
-    }
+    return ratio(sum(1 for p in phishing if p["blocked"]), len(phishing))
 
 
 def level_stats(rows: list[dict], summary: dict) -> dict:
@@ -427,11 +368,10 @@ def knee(levels: list[dict]) -> dict | None:
     return max(usable, key=lambda lv: lv["Mbps"]) if usable else None
 
 
-def load_latency(base: Path) -> tuple[list[str], dict, dict, dict]:
+def load_latency(base: Path) -> tuple[list[str], dict, dict]:
     runs = discover(base)
     metrics = {run: read_jsonl(base / run / "metrics.jsonl") for run in runs}
     runs = [run for run in runs if metrics[run]]
-    alerts = {run: read_jsonl(base / run / "alerts.jsonl") for run in runs}
 
     numbers = {}
     for run in runs:
@@ -440,12 +380,11 @@ def load_latency(base: Path) -> tuple[list[str], dict, dict, dict]:
             **stats(rows),
             **throughput(rows),
             "detection": detection(rows),
-            "caught_pct": caught_share(rows, alerts[run]),
+            "caught_pct": caught_share(rows),
             "to_proxy_pct": proxy_share(read_json(base / run / "ifstats.json")),
             "requests_at_proxy": len(read_jsonl(base / run / "proxy_flows.jsonl")),
-            "controller": reaction(read_jsonl(base / run / "controller.jsonl")),
         }
-    return runs, metrics, alerts, numbers
+    return runs, metrics, numbers
 
 
 def load_ramp(base: Path) -> dict[str, list[dict]]:
@@ -473,7 +412,7 @@ def main() -> int:
     out = HERE / "out"
     graphs = out / "graf"
 
-    runs, metrics, alerts, numbers = load_latency(out / "latency")
+    runs, metrics, numbers = load_latency(out / "latency")
     ramps = load_ramp(out / "ramp")
     if not runs and not ramps:
         raise SystemExit(f"v {out} ni nobene meritve - poženi measure.sh")
@@ -481,11 +420,11 @@ def main() -> int:
     results: dict = {}
     if runs:
         check_speed(out / "latency", runs)
-        print(f"grafi iz {len(runs)} postavitev:")
+        print(f"grafi iz {len(runs)} zagonov:")
         latency_chart(runs, numbers, graphs)
         throughput_chart(runs, numbers, graphs)
         ecdf_chart(runs, metrics, graphs)
-        detection_chart(runs, metrics, alerts, graphs)
+        detection_chart(runs, metrics, graphs)
         load_chart(runs, numbers, graphs)
         cost_benefit_chart(runs, numbers, graphs)
         results["latency"] = numbers

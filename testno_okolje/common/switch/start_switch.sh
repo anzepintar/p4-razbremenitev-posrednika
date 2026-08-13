@@ -5,8 +5,8 @@ BUILD=/opt/switch/build
 SHARED=/opt/traffic/switch/build
 PORTS=()
 
-# Vrata so fiksna: 1 klient, 2 streznik, 3 mitm, 4 ids.
-for port in 1 2 3 4; do
+# Vrata so fiksna: 1 klient, 2 streznik, 3 mitm.
+for port in 1 2 3; do
 	iface="eth$port"
 	[ -e "/sys/class/net/$iface" ] || continue
 
@@ -18,20 +18,16 @@ for port in 1 2 3 4; do
 done
 
 if [ "${#PORTS[@]}" -eq 0 ]; then
-	echo "start_switch: nobenega vmesnika eth1-eth4 - ali je topologija postavljena?" >&2
+	echo "start_switch: nobenega vmesnika eth1-eth3 - ali je topologija postavljena?" >&2
 	exit 1
 fi
 
+# Cevovod in vnose zapise steer.py prek P4Runtime, zato tu zacnemo brez njega.
 mkdir -p "$SHARED"
 cp "$BUILD"/steering.json "$BUILD"/steering.p4info.txtpb "$SHARED"/
 
-PIPELINE=("$BUILD/steering.json")
-if [ "${NO_PIPELINE:-0}" = "1" ]; then
-	PIPELINE=(--no-p4)
-fi
-
-echo "start_switch: ${PORTS[*]} ${PIPELINE[*]}"
+echo "start_switch: ${PORTS[*]}"
 exec simple_switch_grpc --device-id 0 --max-port-count 8 \
 	"${PORTS[@]}" \
-	"${PIPELINE[@]}" \
+	--no-p4 \
 	-- --grpc-server-addr 0.0.0.0:9559

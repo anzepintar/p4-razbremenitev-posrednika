@@ -6,9 +6,9 @@ const bit<16> TYPE_IPV4 = 0x0800;
 const bit<9> PORT_CLIENT = 1;
 const bit<9> PORT_SERVER = 2;
 const bit<9> PORT_MITM   = 3;
-const bit<32> STAT_NOT_IPV4 = 0;
-const bit<32> STAT_NO_ROUTE = 1;
-const bit<32> STAT_TTL      = 2;
+
+const bit<48> MAC_MITM    = 48w0x00000000030a;
+const bit<48> MAC_MITM_GW = 48w0x0000000003fe;
 
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
@@ -70,8 +70,6 @@ control SwitchIngress(inout headers hdr,
                       inout metadata meta,
                       inout standard_metadata_t standard_metadata) {
 
-    counter(3, CounterType.packets) stats;
-
     action drop() {
         mark_to_drop(standard_metadata);
     }
@@ -83,64 +81,47 @@ control SwitchIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    action no_route() {
-        stats.count(STAT_NO_ROUTE);
-        mark_to_drop(standard_metadata);
-    }
-
     table ipv4_lpm {
         key = { hdr.ipv4.dstAddr: lpm; }
-        actions = { ipv4_forward; no_route; }
-        default_action = no_route();
+        actions = { ipv4_forward; drop; }
+        default_action = drop();
         const entries = {
             32w0x0a000100 &&& 32w0xffffff00 :
                 ipv4_forward(48w0x00000000010a, 48w0x0000000001fe, PORT_CLIENT);
             32w0x0a000200 &&& 32w0xffffff00 :
                 ipv4_forward(48w0x00000000020a, 48w0x0000000002fe, PORT_SERVER);
             32w0x0a000300 &&& 32w0xffffff00 :
-                ipv4_forward(48w0x00000000030a, 48w0x0000000003fe, PORT_MITM);
+                ipv4_forward(MAC_MITM, MAC_MITM_GW, PORT_MITM);
+            // Privzeta pot na vrata 2: tam je streznik oziroma prehod v splet.
+            32w0x00000000 &&& 32w0x00000000 :
+                ipv4_forward(48w0x00000000020a, 48w0x0000000002fe, PORT_SERVER);
         }
     }
 
-    direct_counter(CounterType.packets_and_bytes) steering_ctr;
-
     action direct() {
-        steering_ctr.count();
     }
 
-    action via_mitm(macAddr_t dmac, macAddr_t smac) {
+    action via_mitm() {
         standard_metadata.egress_spec = PORT_MITM;
-        hdr.ethernet.dstAddr = dmac;
-        hdr.ethernet.srcAddr = smac;
+        hdr.ethernet.dstAddr = MAC_MITM;
+        hdr.ethernet.srcAddr = MAC_MITM_GW;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
         meta.steered = 1;
-        steering_ctr.count();
     }
 
-    action mirror(bit<32> session) {
-        clone(CloneType.I2E, session);
-        steering_ctr.count();
-    }
-
+    // Vnose zapise steer.py iz vsebnika posrednika; privzeto gre promet direktno.
     table steering {
         key = {
             standard_metadata.ingress_port: exact;
             hdr.ipv4.srcAddr:               exact;
         }
-        actions = { direct; via_mitm; mirror; }
+        actions = { direct; via_mitm; }
         size = 64;
         default_action = direct();
-        counters = steering_ctr;
     }
 
     apply {
-        if (!hdr.ipv4.isValid()) {
-            stats.count(STAT_NOT_IPV4);
-            drop();
-            return;
-        }
-        if (hdr.ipv4.ttl <= 1) {
-            stats.count(STAT_TTL);
+        if (!hdr.ipv4.isValid() || hdr.ipv4.ttl <= 1) {
             drop();
             return;
         }

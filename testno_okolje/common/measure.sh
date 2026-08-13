@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#   ./measure.sh latency "p4_baseline p4_full" 40 [--content-block]
-#   ./measure.sh ramp "p4_full" "1 2 4 8 16" [--content-block]
+#   ./measure.sh latency "mitm_server p4_mitm_server" 40 [--content-block]
+#   ./measure.sh ramp "p4_mitm_server" "1 2 4 8 16" [--content-block]
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -29,6 +29,17 @@ ramp) [ -n "$STEPS" ] || STEPS="1 2 4 8 16" ;;
 esac
 [ -n "$TOPOS" ] || { echo "$USAGE" >&2; exit 2; }
 
+for topo in $TOPOS; do
+	case "$topo" in
+	mitm_server | p4_mitm_server) ;;
+	*)
+		echo "measure.sh: '$topo' ni merljiva - runner potrebuje lokalni testni nabor," \
+			"na voljo sta mitm_server in p4_mitm_server" >&2
+		exit 2
+		;;
+	esac
+done
+
 # Serija traja dolgo; brez tega gostitelj zaspi in v meritvi nastane vrzel.
 if [ -z "${MEASURE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null 2>&1; then
 	export MEASURE_INHIBITED=1
@@ -41,15 +52,6 @@ OUT=out
 SUDO="${SUDO-sudo}"
 DURATION="${DURATION:-30}"
 CURRENT=""
-CONTENT_ARG=""
-MITM_TOPOS="mitm_baseline mitm_controller p4_controller_mitm p4_full"
-
-has_mitm() {
-	case " $MITM_TOPOS " in
-	*" $1 "*) return 0 ;;
-	esac
-	return 1
-}
 
 if [ "$KIND" = ramp ]; then
 	SPEED="${SPEED:-1000}"
@@ -59,7 +61,7 @@ else
 	export CLIENT_CPU="${CLIENT_CPU:-2}"
 fi
 
-ARTEFACTS="metrics.jsonl summary.json alerts.jsonl controller.jsonl proxy_flows.jsonl"
+ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl"
 
 cleanup() {
 	if [ -n "$CURRENT" ]; then
@@ -73,11 +75,11 @@ run() {
 	local topo="$1" dest="$2"
 	shift 2
 
-	for file in $ARTEFACTS eve.json; do rm -f "$OUT/$file"; done
+	for file in $ARTEFACTS; do rm -f "$OUT/$file"; done
 	rm -f "$OUT"/*.log
 
 	CURRENT="$topo"
-	./start.sh "$topo" $CONTENT_ARG
+	./start.sh "$topo" $CONTENT
 
 	clab exec -t "$TOPO_DIR/$topo.clab.yml" --label clab-node-name=client \
 		--cmd "python3 -m runner --config /opt/traffic/scenario.yml $*"
@@ -102,14 +104,8 @@ run() {
 mkdir -p "$OUT"
 for topo in $TOPOS; do
 	name="$topo"
-	CONTENT_ARG=""
 	if [ -n "$CONTENT" ]; then
-		if has_mitm "$topo"; then
-			name="$topo-content"
-			CONTENT_ARG="$CONTENT"
-		else
-			echo "measure.sh: $topo je brez posrednika, --content-block ne velja" >&2
-		fi
+		name="$topo-content"
 	fi
 
 	if [ "$KIND" = latency ]; then

@@ -28,12 +28,8 @@ profiles:
     think_time: [0.2, 1.0]
     fronting: {share: 0.5}
 
-trust_levels: [high, medium, low]
-
-policy:
-  mitm: {high: direct, medium: direct, low: via_mitm}
-  ids: {high: mirror, medium: mirror, low: mirror}
-  full: {high: mirror, medium: mirror, low: via_mitm}
+# Vnose v tabelo steering na stikalu P4 iz tega zapise proxy/steer.py.
+steering: {high: direct, medium: direct, low: via_mitm}
 
 run:
   duration: 60

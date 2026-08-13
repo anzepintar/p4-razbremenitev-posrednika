@@ -18,6 +18,5 @@ grep -qE "^ *set: *$SET\b" scenario.yml || {
 }
 
 python3 gen_caddyfile.py
-python3 ids/gen_rules.py
 
 echo "subset.sh: nabor '$SET' ($(find "server/testset/$SET" -maxdepth 1 -mindepth 1 -type d | wc -l) domen)"

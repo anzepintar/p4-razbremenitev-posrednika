@@ -5,8 +5,8 @@ testno_okolje/common/out/
 testno_okolje/common/server/testset/
 testno_okolje/common/server/sites.caddy
 testno_okolje/common/switch/build/
-testno_okolje/common/ids/testset.rules
 clab-*/
 __pycache__/
 *.pyc
 dokumentacija/zapiski/*
+mitmproxy/

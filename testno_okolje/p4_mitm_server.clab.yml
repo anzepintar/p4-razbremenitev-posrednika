@@ -1,9 +1,9 @@
-name: p4_full
+name: p4_mitm_server
 
 topology:
   nodes:
-    # vrata bmv2: eth1=1 klient, eth2=2 streznik, eth3=3 mitm, eth4=4 ids
-    # eth5 = samo upravljanje (P4Runtime gRPC 10.20.1.2:9559), ni v P4 cevovodu
+    # vrata bmv2: eth1=1 klient, eth2=2 streznik, eth3=3 mitm
+    # eth4 = samo upravljanje (P4Runtime gRPC 10.20.1.2:9559), ni v P4 cevovodu
     switch:
       kind: linux
       image: p4-switch:latest
@@ -15,9 +15,8 @@ topology:
         - ip link set dev eth1 up
         - ip link set dev eth2 up
         - ip link set dev eth3 up
+        - ip addr add 10.20.1.2/30 dev eth4
         - ip link set dev eth4 up
-        - ip addr add 10.20.1.2/30 dev eth5
-        - ip link set dev eth5 up
 
     client:
       kind: linux
@@ -67,46 +66,18 @@ topology:
         - ip neigh replace 10.0.3.254 lladdr 00:00:00:00:03:fe dev eth1
         - ip route replace 10.0.1.0/24 via 10.0.3.254 dev eth1
         - ip route replace 10.0.2.0/24 via 10.0.3.254 dev eth1
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.11 --dport 443 -j REDIRECT --to-port 8444
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.11 --dport 443 -j REDIRECT --to-port 8444
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.12 --dport 443 -j REDIRECT --to-port 8445
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.12 --dport 443 -j REDIRECT --to-port 8445
-
-    ids:
-      kind: linux
-      image: ids:latest
-      cpu: 2
-      memory: 2Gb
-      binds:
-        - common:/opt/traffic
-      exec:
-        # eth1 sprejema zrcaljeni promet, zato brez naslova in v promisc.
-        - ip link set dev eth1 address 00:00:00:00:04:0a
-        - ip link set dev eth1 up
-        - ip link set dev eth1 promisc on
-        # eth2 je pot za javljanje zaznav krmilniku.
-        - ip addr add 10.20.2.2/30 dev eth2
+        # eth2 je upravljalna pot do stikala, po njej tece P4Runtime.
+        - ip addr add 10.20.1.1/30 dev eth2
         - ip link set dev eth2 up
-
-    controller:
-      kind: linux
-      image: p4-controller:latest
-      cpu: 2
-      memory: 2Gb
-      binds:
-        - common:/opt/traffic
-      exec:
-        - ip addr add 10.20.1.1/30 dev eth1
-        - ip link set dev eth1 up
-        - ip addr add 10.20.2.1/30 dev eth2
-        - ip link set dev eth2 up
+        # TPROXY ohrani izvorni cilj datagrama, zato mitmproxy prestreze tudi QUIC.
+        - ip rule add fwmark 1 lookup 100
+        - ip route add local 0.0.0.0/0 dev lo table 100
+        - iptables -t mangle -A PREROUTING -i eth1 -p udp --dport 443 -j TPROXY --on-port 8080 --tproxy-mark 1
+        # TCP gre prek REDIRECT (SO_ORIGINAL_DST), za odjemalce brez HTTP/3.
+        - iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
 
   links:
     - endpoints: ["switch:eth1", "client:eth1"]
     - endpoints: ["switch:eth2", "server:eth1"]
     - endpoints: ["switch:eth3", "mitm:eth1"]
-    - endpoints: ["switch:eth4", "ids:eth1"]
-    - endpoints: ["switch:eth5", "controller:eth1"]
-    - endpoints: ["ids:eth2", "controller:eth2"]
+    - endpoints: ["switch:eth4", "mitm:eth2"]

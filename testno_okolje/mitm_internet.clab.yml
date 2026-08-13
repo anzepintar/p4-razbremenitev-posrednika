@@ -1,0 +1,64 @@
+name: mitm_internet
+
+# Kot mitm_server, le da namesto lokalnega streznika stoji prehod, ki lab NAT-a v splet
+# prek upravljalnega vmesnika. Za rocno preverjanje na resnicnih straneh.
+
+topology:
+  nodes:
+    client:
+      kind: linux
+      image: client:latest
+      cpu: ${CLIENT_CPU:-2}
+      memory: 2Gb
+      binds:
+        - common:/opt/traffic
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:01:0a
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip addr add 10.0.1.11/24 dev eth1
+        - ip addr add 10.0.1.12/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace default via 10.0.1.254 dev eth1
+        # Privzeta pot gre skozi lab, zato mora tja tudi DNS.
+        - bash -c "echo 'nameserver 1.1.1.1' >/etc/resolv.conf"
+
+    mitm:
+      kind: linux
+      image: proxy:latest
+      cpu: 2
+      memory: 2Gb
+      sysctls:
+        net.ipv4.ip_forward: 1
+      binds:
+        - common:/opt/traffic
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:03:0a
+        - ip addr add 10.0.1.254/24 dev eth1
+        - ip link set dev eth1 up
+        - ip link set dev eth2 address 00:00:00:00:03:0b
+        - ip addr add 10.0.2.254/24 dev eth2
+        - ip link set dev eth2 up
+        - ip route replace default via 10.0.2.1 dev eth2
+        # TPROXY ohrani izvorni cilj datagrama, zato mitmproxy prestreze tudi QUIC.
+        - ip rule add fwmark 1 lookup 100
+        - ip route add local 0.0.0.0/0 dev lo table 100
+        - iptables -t mangle -A PREROUTING -i eth1 -p udp --dport 443 -j TPROXY --on-port 8080 --tproxy-mark 1
+        # TCP gre prek REDIRECT (SO_ORIGINAL_DST), za odjemalce brez HTTP/3.
+        - iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
+
+    gateway:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      cmd: sleep infinity
+      sysctls:
+        net.ipv4.ip_forward: 1
+      exec:
+        - ip addr add 10.0.2.1/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace 10.0.1.0/24 via 10.0.2.254 dev eth1
+        # eth0 je upravljalno omrezje containerlaba in ima dostop do spleta.
+        - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+  links:
+    - endpoints: ["client:eth1", "mitm:eth1"]
+    - endpoints: ["mitm:eth2", "gateway:eth1"]

@@ -1,8 +1,7 @@
-name: mitm_baseline
+name: mitm_server
 
 topology:
   nodes:
-
     client:
       kind: linux
       image: client:latest
@@ -46,16 +45,15 @@ topology:
         - ip link set dev eth1 address 00:00:00:00:03:0a
         - ip addr add 10.0.1.254/24 dev eth1
         - ip link set dev eth1 up
-        - ip link set dev eth1 promisc on
         - ip link set dev eth2 address 00:00:00:00:03:0b
         - ip addr add 10.0.2.254/24 dev eth2
         - ip link set dev eth2 up
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.10 --dport 443 -j REDIRECT --to-port 8443
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.11 --dport 443 -j REDIRECT --to-port 8444
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.11 --dport 443 -j REDIRECT --to-port 8444
-        - iptables -t nat -A PREROUTING -i eth1 -p tcp -d 10.0.2.12 --dport 443 -j REDIRECT --to-port 8445
-        - iptables -t nat -A PREROUTING -i eth1 -p udp -d 10.0.2.12 --dport 443 -j REDIRECT --to-port 8445
+        # TPROXY ohrani izvorni cilj datagrama, zato mitmproxy prestreze tudi QUIC.
+        - ip rule add fwmark 1 lookup 100
+        - ip route add local 0.0.0.0/0 dev lo table 100
+        - iptables -t mangle -A PREROUTING -i eth1 -p udp --dport 443 -j TPROXY --on-port 8080 --tproxy-mark 1
+        # TCP gre prek REDIRECT (SO_ORIGINAL_DST), za odjemalce brez HTTP/3.
+        - iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
 
   links:
     - endpoints: ["client:eth1", "mitm:eth1"]
