@@ -111,7 +111,14 @@ fi
 
 ADDONS=(-s /opt/proxy/proxy_stats.py -s /opt/proxy/sni_block.py)
 if [ "$CONTENT_BLOCK" = 1 ]; then
+	docker exec "$(node mitm)" python3 /opt/proxy/content_block.py \
+		>"$OUT/content_rules.log" 2>&1 || {
+		echo "start.sh: vsebinskih pravil ni bilo mogoce prebrati:" >&2
+		cat "$OUT/content_rules.log" >&2
+		exit 1
+	}
 	ADDONS+=(-s /opt/proxy/content_block.py)
+	phase "$(head -1 "$OUT/content_rules.log")"
 fi
 
 # Beli seznam posrednik le tunelira, zato teh sej ne desifrira in jih ne vidi.

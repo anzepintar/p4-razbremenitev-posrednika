@@ -1,0 +1,28 @@
+# zato daj v narekovaje in podvoji vse \. Pravilnik po vsaki spremembi preveri z
+#   docker run --rm -v "$PWD/common:/opt/traffic:ro" proxy:latest python3 /opt/proxy/content_block.py
+
+# oznaka iz build_testset.py; edino pravilo, ki samo doseze prag
+100  testset_label       ~ts text/html & ~bs <meta\x20name=\x22x-testset-label\x22\x20content=\x22phishing\x22>
+
+# telo odgovora; utezi po izmerjenem dvigu na naboru testni (50 mal / 950 ben)
+ 20  pw_name             ~ts text/html & ~bs name=[\x22\x27]?pass|name=[\x22\x27]?pwd
+ 20  php_post            ~ts text/html & ~bs <form[^>]{0,300}action=[\x22\x27][^\x22\x27]{0,300}\.php
+ 15  pw_field            ~ts text/html & ~bs type=[\x22\x27]?password
+ 10  card_data           ~ts text/html & ~bs cvv|card[\x20\x5f\x2d]?number|security\x20code
+ 10  verify_account      ~ts text/html & ~bs verify\x20your\x20account|confirm\x20your\x20identity
+  3  brand_paypal        ~ts text/html & ~bs paypal & !~d paypal\.com
+  3  obfuscated_js       ~ts text/html & ~bs "eval\\(atob|unescape\\("
+  2  login_form          ~ts text/html & ~bs sign[\x20\x2d]?in|log[\x20\x2d]?in
+
+# glave odgovora; Caddy jih ne postavlja, zato v A0 in B0 ne sprozita nicesar
+  2  kit_php_upstream    ~hs x-powered-by:[\x20]?php
+  2  redirect_cleartext  ~c 302 & ~hs location:[\x20]?http://
+
+# glave zahteve; hq_probe je z utezjo 0 le dokaz, da ~hq v verigi deluje
+  2  referer_social      ~hq referer:[\x20]?https?://[^\x0a]{0,200}facebook\.com
+  0  hq_probe            ~hq user-agent:[\x20]?curl/
+
+# naslov; ni vezan na ~ts, ker naslov obstaja tudi pri podvirih
+  3  punycode_host       ~u ^https?://[^/]{0,255}xn--
+  3  ip_host_url         ~u ^https?://[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}
+  0  url_page            ~u /index\.html

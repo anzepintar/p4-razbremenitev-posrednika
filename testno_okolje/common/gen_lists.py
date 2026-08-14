@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gen_lists")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--white-share", type=float, default=0.0)
+    parser.add_argument("--black-share", type=float, default=1.0)
     args = parser.parse_args(argv)
 
     try:
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         mal, ben = [], []
 
     seeds = {
-        ("domain", "black"): mal + EXTRA_BLACK,
+        ("domain", "black"): sample(mal, args.black_share) + EXTRA_BLACK,
         ("domain", "white"): sample(ben, args.white_share) + EXTRA_WHITE,
         ("ip", "black"): [],
         ("ip", "white"): [],

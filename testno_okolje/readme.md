@@ -48,7 +48,7 @@ Posrednik nato pregleda, kar je dobil:
 | :--- | :--- |
 | domena na belem seznamu | surov tunel, brez dešifriranja |
 | domena na črnem seznamu | prekine sejo (`sni_block.py`) — tako je pokrit QUIC |
-| ostalo | dešifrira in preveri vsebino (`content_block.py`) |
+| ostalo | dešifrira in po `lists/content_rules.txt` preveri vsebino (`content_block.py`) |
 
 ## Seznami
 
@@ -74,13 +74,20 @@ ne povozi, zato tvoje spremembe preživijo `subset.sh`; z `--force` jih zapiše 
 domen `mal` iz nabora je na črnem seznamu in koliko postavk v naboru ni.
 
 ```sh
-./common/gen_lists.py                       # prednapolni, kar manjka
-./common/gen_lists.py --force               # zapiši vse na novo iz nabora
+./common/gen_lists.py                            # prednapolni, kar manjka
+./common/gen_lists.py --force                    # zapiši vse na novo iz nabora
+./common/gen_lists.py --force --black-share 0.5  # le polovica domen 'mal' na črni seznam
 ```
 
 Naslova se preverita že ob paketu SYN, zato veljata za TCP in QUIC hkrati. Ves testni nabor stoji
 na enem naslovu (`testset.ip`, privzeto `10.0.2.10`), zato je pravilo IP v A0 in B0 vse ali nič —
 ločevanje po naslovu je smiselno šele proti pravemu spletu, v A1 in B1.
+
+## Vsebinska pravila
+
+`common/lists/content_rules.txt` je pravilnik za `content_block.py`, ki teče le z zastavico
+`--content-block`. Lovi tisto, česar stikalo P4 ne more videti: iz seje pozna le SNI in naslov,
+nikoli odprtega besedila.
 
 ## Meje politike
 
