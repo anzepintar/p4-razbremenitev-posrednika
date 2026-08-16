@@ -77,7 +77,6 @@ class ContentBlock:
             BLOCK_PAGE,
             {
                 "Content-Type": "text/html; charset=utf-8",
-                # Enaki glavi kot Caddyjevi, da runner vrstico pripise pravi domeni.
                 "X-Domain": flow.request.host_header or flow.request.pretty_host,
                 "X-Sni": getattr(flow.client_conn, "sni", None) or "",
                 "X-Block": ",".join(name for _, name in matched),

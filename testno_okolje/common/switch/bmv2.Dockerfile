@@ -1,5 +1,3 @@
-# Gradnja bmv2 iz izvorne kode z optimizacijskimi zastavicami.
-
 ARG PI_IMAGE=p4lang/pi:latest
 FROM ${PI_IMAGE}
 

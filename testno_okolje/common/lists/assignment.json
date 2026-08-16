@@ -1,0 +1,419 @@
+{
+  "seed": 1234,
+  "subset": "testni",
+  "server_ips": {
+    "default": "10.0.2.10",
+    "ip_black": "10.0.2.11",
+    "ip_white": "10.0.2.12"
+  },
+  "counts": {
+    "content_block": 10,
+    "ip_black": 10,
+    "ip_white": 10,
+    "sni_black": 10,
+    "sni_white": 10,
+    "unknown": 50
+  },
+  "domains": {
+    "2ridetheworld.com": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "aabb.org": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "achhikhabar.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "actfourscreenplays.com": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "afroromance.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "ag.purdue.edu": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "apzcres.000webhostapp.com": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "artmolds.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "biogeografia.netau.net": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "birminghamstage.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "bitnami.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "blog.pepecar.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "bnntv.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "buildajoomlawebsite.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "buncombecounty.org": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "capwip.org": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "career.vt.edu": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "caribouandyou.ca": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "cathedral.qld.edu.au": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "creapassions.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "customize.org": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "dance.com": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "deutscher-marinebund.de": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "dreamhost.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "drudgereport.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "duas.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "dutchgamegarden.nl": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "e-struc.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "embeddedartists.com": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "emedicine.medscape.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "eoft.eu": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "erzdioezese-wien.at": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "fcvdendereh.be": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "freezenova.com": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "gamelifebalanceus.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "geograph.org.uk": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "geometricglobal.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "glasgowfilm.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "glide.me": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "go2africa.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "grand-elysee.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "hartfordhealthcare.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "hcph.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "hdl.handle.net": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "hdretrovision.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "heatherdale.com": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "ihomeschoolnetwork.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "indiatoday.in": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "ios.icegear.net": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "iowacollegeaid.gov": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "jeep-official.it": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "jointheteem.com": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "jung.de": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "kenchickenmalang.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "kff.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "learning.zahnerhistory.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "lilwaynehq.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "lynneknowlton.com": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "magdalena-pensjonat.pl": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "mathoverflow.net": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "mattytemple.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "meted.ucar.edu": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "milosierdzie.pl": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "miranodesigns.com": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "mlw.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "music.biggiantcircles.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    },
+    "mycareer.prosv.ru": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "nablacosmetics.com": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "nateleung.com": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "nationsphotolab.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "nlr.nl": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "otterndorf.de": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "passporttoknowledge.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "personal-growth-programs.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "player.me": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "pspaudioware.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "putnam.com": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "quilpue.cl": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "rhinoafrica.com": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "rushlimbaugh.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "s3-eu-west-1.amazonaws.com": {
+      "group": "ip_black",
+      "ip": "10.0.2.11"
+    },
+    "seiu.org": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "shmp.qc.ca": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "shopvote.de": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "skillroads.com": {
+      "group": "sni_white",
+      "ip": "10.0.2.10"
+    },
+    "stopsmartmeters.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "support-membership-validate.com": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "takeets.com": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "thmeythmey.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "tinusaur.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "uncommonchick.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "uniel.ru": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "unwomen.org": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "utilitywarehouse.co.uk": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "wgmods.net": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "whatislive.de": {
+      "group": "sni_black",
+      "ip": "10.0.2.10"
+    },
+    "wildlifecenter.org": {
+      "group": "content_block",
+      "ip": "10.0.2.10"
+    },
+    "worldofwarplanes.ru": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "worldsciencefestival.com": {
+      "group": "unknown",
+      "ip": "10.0.2.10"
+    },
+    "www.syriefried.com": {
+      "group": "ip_white",
+      "ip": "10.0.2.12"
+    }
+  }
+}

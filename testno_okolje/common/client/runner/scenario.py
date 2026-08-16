@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 PROTOCOLS = ("h2", "h3")
 INDEX = "/index.html"
+BIG = "/big.bin"
 
-# Oznaki iz nabora LNU-Phish.
-LABELS = {"ben": "legit", "mal": "phishing"}
+COMMON = Path("/opt/traffic")
+
+GROUPS = (
+    "ip_black", "ip_white", "sni_black", "sni_white", "content_block", "unknown",
+)
+
+BLOCKED_GROUPS = ("ip_black", "sni_black", "content_block")
 
 
 class ScenarioError(ValueError):
@@ -20,28 +25,12 @@ class ScenarioError(ValueError):
 @dataclass(frozen=True)
 class Site:
     domain: str
-    label: str
+    group: str
+    ip: str
 
     @property
-    def category(self) -> str:
-        return LABELS[self.label]
-
-
-@dataclass(frozen=True)
-class Profile:
-    name: str
-    protocols: dict[str, float]
-    labels: tuple[str, ...]
-    rate: float
-    think_time: tuple[float, float]
-    fronting_share: float = 0.0
-
-
-@dataclass(frozen=True)
-class Client:
-    id: str
-    src_ip: str
-    profile: str
+    def expect_blocked(self) -> bool:
+        return self.group in BLOCKED_GROUPS
 
 
 @dataclass(frozen=True)
@@ -52,7 +41,9 @@ class Run:
     cacert: Path
     testset: Path
     subset: str
-    max_subresources: int
+    connect_timeout_s: float
+    max_time_s: float
+    object_kb: int
 
     @property
     def root(self) -> Path:
@@ -62,91 +53,80 @@ class Run:
 @dataclass(frozen=True)
 class Scenario:
     sites: dict[str, Site]
-    clients: tuple[Client, ...]
-    profiles: dict[str, Profile]
     run: Run
-    server_ip: str
+    quic_share: float
 
     def domains(self) -> list[str]:
         return sorted(self.sites)
 
-    def by_label(self, label: str) -> list[Site]:
-        return sorted((s for s in self.sites.values() if s.label == label), key=lambda s: s.domain)
+    def domains_in(self, groups: list[str]) -> list[str]:
+        unknown = [g for g in groups if g not in GROUPS]
+        if unknown:
+            raise ScenarioError(
+                f"skupine '{', '.join(unknown)}' ni; na voljo so {', '.join(GROUPS)}"
+            )
+        found = sorted(s.domain for s in self.sites.values() if s.group in groups)
+        if not found:
+            raise ScenarioError(
+                f"razdelitev nima nobene domene iz skupin '{', '.join(groups)}'; "
+                "popravi experiment.yml in pozeni gen_lists.py"
+            )
+        return found
 
-    def profile_for(self, client: Client) -> Profile:
-        return self.profiles[client.profile]
+    def by_group(self, group: str) -> list[Site]:
+        return sorted(
+            (s for s in self.sites.values() if s.group == group), key=lambda s: s.domain
+        )
+
+    def ip_for(self, domain: str) -> str:
+        site = self.sites.get(domain)
+        if site is None:
+            raise ScenarioError(f"domene '{domain}' ni v razdelitvi")
+        return site.ip
 
     def page_file(self, domain: str) -> Path:
         return self.run.root / domain / "index.html"
 
 
-def load_sites(manifest: Path) -> dict[str, Site]:
-    raw = json.loads(manifest.read_text(encoding="utf-8"))
-    return {
-        entry["domain"]: Site(domain=entry["domain"], label=entry["label"]) for entry in raw
-    }
+def load(
+    config: str | Path = COMMON / "experiment.yml",
+    *,
+    assignment: str | Path | None = None,
+    quic_share: float | None = None,
+    testset: str | Path | None = None,
+) -> Scenario:
+    sys.path.insert(0, str(Path(config).resolve().parent))
+    import experiment as exp
 
-
-def load(path: str | Path, *, testset: str | Path | None = None) -> Scenario:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-
-    run, server_ip = _load_run(raw["run"], raw["testset"], testset)
-    sites = load_sites(run.root / "sites.json")
-    profiles = _load_profiles(raw["profiles"], sites)
-    clients = _load_clients(raw["clients"], profiles)
-    return Scenario(
-        sites=sites, clients=clients, profiles=profiles, run=run, server_ip=server_ip
+    settings = exp.load(config)
+    data = json.loads(
+        Path(assignment or Path(config).parent / "lists" / "assignment.json")
+        .read_text(encoding="utf-8")
     )
 
+    sites = {
+        domain: Site(domain=domain, group=info["group"], ip=info["ip"])
+        for domain, info in data["domains"].items()
+    }
+    if not sites:
+        raise ScenarioError("razdelitev je prazna; pozeni gen_lists.py")
 
-def _load_run(raw: dict, testset_cfg: dict, override: str | Path | None) -> tuple[Run, str]:
-    path = override if override is not None else testset_cfg["path"]
     run = Run(
-        duration=float(raw.get("duration", 60)),
-        seed=int(raw.get("seed", 0)),
-        out=Path(raw.get("out", "/opt/traffic/out")),
-        cacert=Path(raw.get("cacert", "/opt/traffic/pki/trust.pem")),
-        testset=Path(path),
-        subset=testset_cfg["set"],
-        max_subresources=int(raw.get("max_subresources", 25)),
+        duration=float(settings.duration_s),
+        seed=settings.seed,
+        out=settings.out,
+        cacert=settings.cacert,
+        testset=Path(testset) if testset else settings.testset,
+        subset=settings.subset,
+        connect_timeout_s=settings.connect_timeout_s,
+        max_time_s=settings.max_time_s,
+        object_kb=settings.object_kb,
     )
     if not run.root.is_dir():
         raise ScenarioError(f"nabora '{run.subset}' ni v {run.testset}")
-    return run, str(testset_cfg["ip"])
 
+    share = quic_share if quic_share is not None else 0.0
+    if not 0.0 <= share <= 1.0:
+        raise ScenarioError(f"quic_share {share} ni med 0 in 1")
 
-def _load_profiles(raw: dict, sites: dict[str, Site]) -> dict[str, Profile]:
-    present = {site.label for site in sites.values()}
-
-    profiles: dict[str, Profile] = {}
-    for name, entry in raw.items():
-        labels = tuple(entry["labels"])
-        missing = set(labels) - present
-        if missing:
-            raise ScenarioError(f"profil '{name}': v naboru ni oznak {sorted(missing)}")
-
-        unknown = set(entry["protocols"]) - set(PROTOCOLS)
-        if unknown:
-            raise ScenarioError(f"profil '{name}': neznani protokoli {sorted(unknown)}")
-
-        think = entry["think_time"]
-        profiles[name] = Profile(
-            name=name,
-            protocols={key: float(value) for key, value in entry["protocols"].items()},
-            labels=labels,
-            rate=float(entry["rate"]),
-            think_time=(float(think[0]), float(think[1])),
-            fronting_share=float(entry.get("fronting", {}).get("share", 0.0)),
-        )
-    return profiles
-
-
-def _load_clients(raw: list, profiles: dict[str, Profile]) -> tuple[Client, ...]:
-    clients = []
-    for entry in raw:
-        if entry["profile"] not in profiles:
-            raise ScenarioError(f"odjemalec '{entry['id']}': neznan profil '{entry['profile']}'")
-        clients.append(
-            Client(id=entry["id"], src_ip=entry["src_ip"], profile=entry["profile"])
-        )
-    return tuple(clients)
+    return Scenario(sites=sites, run=run, quic_share=share)

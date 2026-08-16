@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Zapise tabeli ip_policy in sni_policy v stikalo P4."""
 from __future__ import annotations
 
 import argparse
@@ -32,7 +31,6 @@ class SteeringError(ValueError):
 def connect(grpc_addr: str, push_config: bool):
     import p4runtime_sh.shell as sh
 
-    # Ob branju stevcev cevovoda ne nalozimo znova, ker bi s tem zbrisali stevce.
     config = sh.FwdPipeConfig(str(P4INFO), str(BMV2_JSON)) if push_config else None
     sh.setup(device_id=0, grpc_addr=grpc_addr, election_id=(0, 1), config=config)
     return sh

@@ -15,6 +15,47 @@ def responded(rows: list[dict]) -> list[dict]:
     return [row for row in rows if row.get("exitcode") == 0 and row.get("time_total") is not None]
 
 
+INDEX = "/index.html"
+
+
+def is_document(row: dict) -> bool:
+    if "document" in row:
+        return bool(row["document"])
+    return (row.get("url") or "").endswith(INDEX)
+
+
+def by_group(rows: list[dict]) -> dict:
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(row.get("group") or "?", []).append(row)
+
+    out = {}
+    for group, items in sorted(groups.items()):
+        expected = bool(items[0].get("expect_blocked"))
+        documents = [r for r in items if is_document(r)]
+
+        def stopped_in(subset: list[dict]) -> int:
+            return sum(1 for r in subset if r.get("exitcode") != 0 or r.get("blocked"))
+
+        upstream_fail = sum(1 for r in items if (r.get("http_code") or 0) >= 500)
+
+        stopped_docs = stopped_in(documents)
+        matched = stopped_docs if expected else len(documents) - stopped_docs
+        out[group] = {
+            **stats(items),
+            "expect_blocked": expected,
+            "pages": len(documents),
+            "subresources": len(items) - len(documents),
+            "stopped": stopped_in(items),
+            "stopped_pages": stopped_docs,
+            "upstream_fail": upstream_fail,
+            "as_expected_pct": (
+                round(matched / len(documents) * 100, 1) if documents else None
+            ),
+        }
+    return out
+
+
 def stats(rows: list[dict]) -> dict:
     ok = responded(rows)
     times = [row["time_total"] for row in ok]

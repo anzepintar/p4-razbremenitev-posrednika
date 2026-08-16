@@ -392,7 +392,6 @@ control SwitchIngress(inout headers hdr,
                 ipv4_forward(48w0x00000000020a, 48w0x0000000002fe, PORT_SERVER);
             32w0x0a000300 &&& 32w0xffffff00 :
                 ipv4_forward(MAC_MITM, MAC_MITM_GW, PORT_MITM);
-            // Privzeta pot na vrata 2: tam je streznik oziroma prehod v splet.
             32w0x00000000 &&& 32w0x00000000 :
                 ipv4_forward(48w0x00000000020a, 48w0x0000000002fe, PORT_SERVER);
         }
@@ -414,7 +413,6 @@ control SwitchIngress(inout headers hdr,
         meta.ipVerdict = VERDICT_WHITE;
     }
 
-    // Odlocitev pade ze ob paketu SYN, zato drzi za TCP in QUIC hkrati.
     table ip_policy {
         key = { hdr.ipv4.dstAddr: lpm; }
         actions = { ip_block; ip_white; NoAction; }
@@ -443,8 +441,8 @@ control SwitchIngress(inout headers hdr,
             return;
         }
 
-        bool quic = hdr.udp.isValid() && hdr.udp.dstPort == PORT_TLS;
-        // Brez te izjeme se v laboratoriju ne razresi nobeno ime.
+        bool quic = hdr.udp.isValid()
+            && (hdr.udp.dstPort == PORT_TLS || hdr.udp.srcPort == PORT_TLS);
         bool infra = hdr.ipv4.protocol == PROTO_ICMP
             || (hdr.udp.isValid() && (hdr.udp.dstPort == PORT_DNS
                                       || hdr.udp.srcPort == PORT_DNS));

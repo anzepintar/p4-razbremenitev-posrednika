@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "client"))
 
 from runner import scenario as scenario_mod
@@ -36,17 +37,27 @@ BLOCK = """
 
 def render(scenario: scenario_mod.Scenario) -> str:
     text = HEADER.format(
-        manifest=f"testset/{scenario.run.subset}/sites.json",
+        manifest="experiment.yml + lists/assignment.json",
         root=f"{ROOT}/{scenario.run.subset}",
     )
     addresses = ",\n".join(f"https://{domain}" for domain in scenario.domains())
     return text + BLOCK.format(addresses=addresses)
 
 
-def main() -> int:
-    scenario = scenario_mod.load(HERE / "scenario.yml", testset=TESTSET)
+def write(
+    config: Path | None = None, testset: Path | None = None
+) -> scenario_mod.Scenario:
+    scenario = scenario_mod.load(
+        config or HERE / "experiment.yml", testset=testset or TESTSET
+    )
     OUT.write_text(render(scenario), encoding="utf-8")
-    print(f"{OUT}: {len(scenario.sites)} domen na {scenario.server_ip}")
+    return scenario
+
+
+def main() -> int:
+    scenario = write()
+    ips = sorted({site.ip for site in scenario.sites.values()})
+    print(f"{OUT}: {len(scenario.sites)} domen na naslovih {', '.join(ips)}")
     return 0
 
 

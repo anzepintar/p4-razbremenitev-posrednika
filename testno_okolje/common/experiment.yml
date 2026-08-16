@@ -1,0 +1,43 @@
+domains:
+  total: 100
+  groups:
+    ip_black: 10
+    ip_white: 10
+    sni_black: 10
+    sni_white: 10
+    content_block: 10
+    unknown: 50
+
+server_ips:
+  default: 10.0.2.10
+  ip_black: 10.0.2.11
+  ip_white: 10.0.2.12
+
+traffic:
+  cases:
+    brez_quic: 0.0
+    z_quic: 1.0
+
+matrix:
+  modes: [brez, ip_black, ip_white, sni_black, sni_white, content_block]
+  background_mbps: 128
+  background_workers: 16
+  policy_rps: 100
+  duration_s: 30
+  repeats: 3
+
+load:
+  connect_timeout_s: 1.000
+  max_time_s: 30
+  object_kb: 0
+  ramp: [8, 16, 32, 64, 128, 256]
+  error_budget_pct: 1.0
+
+topologies: [A0, B0]
+
+run:
+  seed: 1234
+  out: /opt/traffic/out
+  cacert: /opt/traffic/pki/trust.pem
+  testset: /opt/traffic/server/testset
+  subset: testni

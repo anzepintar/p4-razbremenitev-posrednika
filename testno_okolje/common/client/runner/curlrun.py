@@ -8,9 +8,6 @@ from .urls import Target
 
 PORT = 443
 
-CONNECT_TIMEOUT = 5
-MAX_TIME = 15
-
 WRITE_OUT = (
     '{"curl":%{json},"x_sni":"%header{x-sni}",'
     '"x_domain":"%header{x-domain}","x_block":"%header{x-block}"}\\n'
@@ -31,13 +28,15 @@ class Request:
 
 def build_argv(scenario: Scenario, request: Request, *, src_ip: str, cacert: str) -> list[str]:
     argv = ["curl", "--silent", "--no-progress-meter", "--show-error"]
-    argv += ["--connect-timeout", str(CONNECT_TIMEOUT), "--max-time", str(MAX_TIME)]
+    argv += ["--connect-timeout", str(scenario.run.connect_timeout_s),
+             "--max-time", str(scenario.run.max_time_s)]
     argv += PROTO_FLAG[request.proto]
 
-    argv += ["--interface", src_ip]
+    if src_ip:
+        argv += ["--interface", src_ip]
 
     for domain in sorted({target.domain for target in request.targets}):
-        argv += ["--resolve", f"{domain}:{PORT}:{scenario.server_ip}"]
+        argv += ["--resolve", f"{domain}:{PORT}:{scenario.ip_for(domain)}"]
 
     argv += ["--cacert", cacert]
 
@@ -63,7 +62,7 @@ def to_metric(record: dict, *, labels: dict) -> dict:
         **labels,
         "url": curl.get("url_effective"),
         "http_code": curl.get("http_code"),
-        "http_version": curl.get("http_version"),
+        "http_version": str(curl.get("http_version") or ""),
         "size_download": curl.get("size_download"),
         "num_connects": curl.get("num_connects"),
         "local_ip": curl.get("local_ip"),

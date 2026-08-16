@@ -87,20 +87,26 @@ def addresses(items: list[str]) -> list[str]:
     return sorted(set(prefixes))
 
 
-def ignore_hosts(domains: list[str]) -> str:
-    if not domains:
+def _domain_part(pattern: str) -> str:
+    return f".+{re.escape(pattern)}" if pattern.startswith(".") else re.escape(pattern)
+
+
+def _address_part(prefix: str) -> str:
+    address, _, bits = prefix.partition("/")
+    return re.escape(address if bits in ("", "32") else prefix)
+
+
+def ignore_hosts(domains: list[str], ips: list[str] | None = None) -> str:
+    parts = [_domain_part(d) for d in sorted(domains)]
+    parts += [_address_part(p) for p in sorted(ips or [])]
+    if not parts:
         return ""
-    parts = [
-        f".+{re.escape(d)}" if d.startswith(".") else re.escape(d)
-        for d in sorted(domains)
-    ]
     return f"^(?:{'|'.join(parts)}):{TLS_PORT}$"
 
 
-def blocks(domains: list[str], name: str | None) -> bool:
-    if not name:
-        return False
-    return any(
-        name.endswith(pattern) if pattern.startswith(".") else name == pattern
-        for pattern in domains
-    )
+def block_filter(domains: list[str], ips: list[str] | None = None) -> str:
+    parts = [_domain_part(d) for d in sorted(domains)]
+    parts += [_address_part(p) for p in sorted(ips or [])]
+    if not parts:
+        return ""
+    return f"^(?:{'|'.join(parts)})$"

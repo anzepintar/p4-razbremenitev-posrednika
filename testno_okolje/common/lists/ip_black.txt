@@ -1,3 +1,4 @@
 # Naslovi, ki jih stikalo zavrze ze ob paketu SYN.
-# Naslov, predpona CIDR ali domena (razresi se ob zagonu), ena na vrstico.
+# Nastalo iz experiment.yml (server_ips.ip_black) - ne urejaj rocno.
 
+10.0.2.11

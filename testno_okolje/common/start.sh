@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#   ./start.sh <postavitev> [--content-block] [--web]
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -11,15 +10,17 @@ GRPC=10.20.1.2:9559
 PROBE_URL="${PROBE_URL:-https://quic.anzepintar.com/}"
 WEB_PASSWORD="${WEB_PASSWORD:-diploma}"
 
-TOPO="${1:?uporaba: start.sh <postavitev> [--content-block] [--web]}"
+TOPO="${1:?uporaba: start.sh <postavitev> [--content-block] [--web] [--lazy]}"
 TOPO_FILE=../$TOPO.clab.yml
 shift
 CONTENT_BLOCK=0
 WEB=0
+LAZY=0
 for arg in "$@"; do
 	case "$arg" in
 	--content-block) CONTENT_BLOCK=1 ;;
 	--web) WEB=1 ;;
+	--lazy) LAZY=1 ;;
 	*) echo "start.sh: neznana zastavica '$arg'" >&2; exit 2 ;;
 	esac
 done
@@ -67,7 +68,7 @@ if [ "$HAS_SWITCH" = 1 ]; then
 	phase "switch running"
 
 	docker exec "$(node mitm)" \
-		/opt/p4venv/bin/python /opt/proxy/steer.py --grpc-addr "$GRPC" >>"$OUT/steer.log" 2>&1 || {
+		/opt/p4venv/bin/python /opt/traffic/proxy/steer.py --grpc-addr "$GRPC" >>"$OUT/steer.log" 2>&1 || {
 		echo "start.sh: seznamov ni bilo mogoce zapisati, glej $OUT/steer.log" >&2
 		exit 1
 	}
@@ -86,12 +87,13 @@ if [ "$HAS_SERVER" = 1 ]; then
 import sys
 from pathlib import Path
 
+sys.path.insert(0, ".")
 sys.path.insert(0, str(Path("client").resolve()))
 from runner import scenario as scenario_mod
 
-scenario = scenario_mod.load("scenario.yml", testset="server/testset")
+scenario = scenario_mod.load("experiment.yml", testset="server/testset")
 for site in sorted(scenario.sites.values(), key=lambda s: s.domain):
-    print(site.domain, scenario.server_ip, site.label)
+    print(site.domain, site.ip, site.group)
 PY
 
 	warmed=$(timeout "${WARMUP_TIMEOUT:-600}" docker exec "$(node server)" sh -c '
@@ -109,38 +111,50 @@ PY
 	fi
 fi
 
-ADDONS=(-s /opt/proxy/proxy_stats.py -s /opt/proxy/sni_block.py)
+ADDONS=(-s /opt/traffic/proxy/proxy_stats.py)
 if [ "$CONTENT_BLOCK" = 1 ]; then
-	docker exec "$(node mitm)" python3 /opt/proxy/content_block.py \
+	docker exec "$(node mitm)" python3 /opt/traffic/proxy/content_block.py \
 		>"$OUT/content_rules.log" 2>&1 || {
 		echo "start.sh: vsebinskih pravil ni bilo mogoce prebrati:" >&2
 		cat "$OUT/content_rules.log" >&2
 		exit 1
 	}
-	ADDONS+=(-s /opt/proxy/content_block.py)
+	ADDONS+=(-s /opt/traffic/proxy/content_block.py)
 	phase "$(head -1 "$OUT/content_rules.log")"
 fi
 
-# Beli seznam posrednik le tunelira, zato teh sej ne desifrira in jih ne vidi.
 IGNORE=()
-WHITE=$(python3 - <<'PY'
+BLOCK=()
+read -r WHITE BLACK <<<"$(python3 - <<'PY'
 import sys
 
 sys.path.insert(0, ".")
 import sni
 
-print(sni.ignore_hosts(sni.load("domain")["white"]))
+domains, ips = sni.load("domain"), sni.load("ip")
+print(sni.ignore_hosts(domains["white"], ips["white"]) or "-",
+      sni.block_filter(domains["black"], ips["black"]) or "-")
 PY
-)
-if [ -n "$WHITE" ]; then
+)"
+
+if [ "$WHITE" != "-" ]; then
 	IGNORE=(--ignore-hosts "$WHITE")
-	phase "beli seznam: $(printf '%s' "$WHITE" | tr '|' '\n' | wc -l) domen brez pregleda"
+	phase "beli seznam: $(printf '%s\n' "$WHITE" | tr '|' '\n' | wc -l) postavk brez pregleda"
+fi
+if [ "$BLACK" != "-" ]; then
+	BLOCK=(--set "block_list=#~d \"$BLACK\"#444")
+	phase "crni seznam: $(printf '%s\n' "$BLACK" | tr '|' '\n' | wc -l) postavk se zavrne"
 fi
 
-# Navzgor preverjamo Caddyjev CA le v lab postavitvah; v splet gre s sistemsko zalogo.
 UPSTREAM=()
 if [ "$HAS_SERVER" = 1 ]; then
 	UPSTREAM=(--set ssl_verify_upstream_trusted_ca=/opt/traffic/pki/trust.pem)
+fi
+
+STRATEGY=()
+if [ "$LAZY" = 1 ]; then
+	STRATEGY=(--set connection_strategy=lazy)
+	phase "connection_strategy=lazy"
 fi
 
 TOOL=mitmdump
@@ -157,6 +171,8 @@ docker exec -d "$(node mitm)" sh -c 'exec "$@" >>/opt/traffic/out/mitm.log 2>&1'
 	--set confdir=/data/mitmproxy \
 	"${UPSTREAM[@]}" \
 	"${IGNORE[@]}" \
+	"${BLOCK[@]}" \
+	"${STRATEGY[@]}" \
 	"${WEB_OPTS[@]}" \
 	"${ADDONS[@]}"
 
@@ -182,11 +198,20 @@ if [ "$WEB" = 1 ]; then
 fi
 
 if [ "$HAS_SERVER" = 1 ]; then
-	read -r PROBE_DOMAIN PROBE_IP _ <<<"$(awk '$3 == "ben" {print; exit}' "$OUT/warmup.txt")"
+	read -r PROBE_DOMAIN PROBE_IP _ <<<"$(awk '
+		$3 == "unknown" { print; found = 1; exit }
+		$3 == "sni_white" || $3 == "ip_white" { if (!fallback) fallback = $0 }
+		END { if (!found && fallback) print fallback }
+	' "$OUT/warmup.txt")"
+	if [ -z "${PROBE_DOMAIN:-}" ]; then
+		echo "start.sh: v razdelitvi ni domene iz skupine unknown, sni_white ali ip_white," >&2
+		echo "  zato kontrolna zahteva ne more vrniti 200; popravi experiment.yml" >&2
+		echo "  in pozeni ./common/gen_lists.py" >&2
+		exit 1
+	fi
 	PROBE=("--resolve" "$PROBE_DOMAIN:443:$PROBE_IP" "https://$PROBE_DOMAIN/index.html")
 	TARGET="$PROBE_DOMAIN"
 else
-	# V splet gre kontrolna zahteva prek HTTP/3, torej hkrati preveri prestrezanje QUIC-a.
 	PROBE=("--http3-only" "$PROBE_URL")
 	TARGET="$PROBE_URL"
 fi

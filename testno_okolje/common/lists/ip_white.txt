@@ -1,3 +1,4 @@
-# Naslovi, ki gredo mimo posrednika naravnost na streznik oziroma v splet.
-# Naslov, predpona CIDR ali domena (razresi se ob zagonu), ena na vrstico.
+# Naslovi, ki gredo mimo posrednika naravnost na streznik.
+# Nastalo iz experiment.yml (server_ips.ip_white) - ne urejaj rocno.
 
+10.0.2.12

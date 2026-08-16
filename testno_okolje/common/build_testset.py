@@ -12,9 +12,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE / "client"))
 
-from runner.scenario import LABELS
+LABELS = {"ben": "legit", "mal": "phishing"}
 
 DATASET = HERE.parent.parent / "testni_podatki" / "LNU-Phish-raw_no-screenshot"
 
@@ -28,15 +27,13 @@ PHISH_SOURCES = [
     "phishing/phishTank/data/phishTank.json",
 ]
 
-SETS = {"osnovni": (50, 50), "testni": (950, 50)}
+SETS = {"testni": (950, 50)}
 
 CHUNK = 1 << 20
 
-# Oznaka je v telesu strani, zato jo vidi samo tisti, ki promet desifrira.
 MARKER = '<meta name="x-testset-label" content="{category}">'
 HEAD = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
 
-# za zahteve, ki bi drugače vrnile 404
 ASSET = "_asset.bin"
 ASSET_SIZE = 24 * 1024
 
@@ -150,7 +147,6 @@ def write_set(name: str, sites: list[dict], out: Path) -> None:
         (directory / "index.html").write_text(
             mark(site["html"], site["label"]), encoding="utf-8"
         )
-        # Povezava namesto kopije, da nabor ne zraste za velikost x stevilo strani.
         (directory / ASSET).symlink_to(Path("..") / ASSET)
         manifest.append({k: v for k, v in site.items() if k != "html"})
 
@@ -162,7 +158,7 @@ def write_set(name: str, sites: list[dict], out: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=DATASET, help="izvorni LNU-Phish")
     parser.add_argument("--out", type=Path, default=HERE / "server" / "testset")
     args = parser.parse_args(argv)

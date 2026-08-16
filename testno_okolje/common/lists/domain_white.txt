@@ -1,5 +1,13 @@
 # Domene, ki jih posrednik le tunelira - brez desifriranja in brez potrdila.
-# Ena na vrstico, # je opomba, zacetna pika velja za vse poddomene (.primer.com).
+# Nastalo iz experiment.yml (skupina sni_white) - ne urejaj rocno.
 
-anzepintar.com
-quic.anzepintar.com
+aabb.org
+biogeografia.netau.net
+embeddedartists.com
+glide.me
+mathoverflow.net
+meted.ucar.edu
+nablacosmetics.com
+nlr.nl
+otterndorf.de
+skillroads.com

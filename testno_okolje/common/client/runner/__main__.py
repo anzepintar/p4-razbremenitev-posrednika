@@ -14,11 +14,16 @@ CACERT_WAIT = 60.0
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="runner")
-    parser.add_argument("--config", default="/opt/traffic/scenario.yml")
+    parser.add_argument("--config", default="/opt/traffic/experiment.yml")
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--requests", type=int, default=None)
-    parser.add_argument("--speed", type=float, default=1.0)
-    parser.add_argument("--parallel", type=int, default=1)
+    parser.add_argument("--quic-share", type=float, default=0.0)
+    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--rate-mbps", type=float, default=None)
+    parser.add_argument("--rate-rps", type=float, default=None)
+    parser.add_argument("--groups", default=None)
+    parser.add_argument("--label", default=None)
+    parser.add_argument("--src-ip", default=None)
     return parser.parse_args(argv)
 
 
@@ -40,98 +45,113 @@ class MetricsWriter:
         self._handle.close()
 
 
-def pick_protocol(rng: random.Random, weights: dict[str, float]) -> str:
-    items = sorted(weights.items())
-    draw = rng.random()
-    cumulative = 0.0
-    for name, weight in items:
-        cumulative += weight
-        if draw < cumulative:
-            return name
-    return items[-1][0]
+class BytePacer:
+
+    def __init__(self, rate_mbps: float | None) -> None:
+        self.target_bps = (rate_mbps * 1e6) if rate_mbps else None
+        self.started = time.monotonic()
+        self.sent = 0
+        self._lock = asyncio.Lock()
+
+    async def account(self, size: int) -> None:
+        if self.target_bps is None:
+            return
+        async with self._lock:
+            self.sent += size
+            elapsed = time.monotonic() - self.started
+            needed = self.sent * 8 / self.target_bps
+            delay = needed - elapsed
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    @property
+    def achieved_mbps(self) -> float | None:
+        elapsed = time.monotonic() - self.started
+        return round(self.sent * 8 / elapsed / 1e6, 2) if elapsed > 0 else None
+
+
+class RequestPacer:
+    def __init__(self, rate_rps: float | None) -> None:
+        self.target_rps = rate_rps
+        self.started = time.monotonic()
+        self.done = 0
+        self._lock = asyncio.Lock()
+
+    async def account(self) -> None:
+        async with self._lock:
+            self.done += 1
+            if self.target_rps is None:
+                return
+            elapsed = time.monotonic() - self.started
+            delay = self.done / self.target_rps - elapsed
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    @property
+    def achieved_rps(self) -> float | None:
+        elapsed = time.monotonic() - self.started
+        return round(self.done / elapsed, 2) if elapsed > 0 else None
 
 
 def build_request(
+    scenario: scenario_mod.Scenario, rng: random.Random, pool: list[str]
+) -> tuple[curlrun.Request, str]:
+    domain = rng.choice(pool)
+    proto = "h3" if rng.random() < scenario.quic_share else "h2"
+    targets = tuple(urls.page_targets(scenario, domain))
+    return curlrun.Request(targets=targets, proto=proto), domain
+
+
+async def run_worker(
     scenario: scenario_mod.Scenario,
-    profile: scenario_mod.Profile,
-    rng: random.Random,
-) -> tuple[curlrun.Request, str, bool]:
-    label = rng.choice(profile.labels)
-    domain = rng.choice([s.domain for s in scenario.by_label(label)])
-    proto = pick_protocol(rng, profile.protocols)
-    fronted = rng.random() < profile.fronting_share
-
-    if fronted:
-        hidden = (
-            domain
-            if label == "mal"
-            else rng.choice([s.domain for s in scenario.by_label("mal")])
-        )
-        cover = rng.choice([site.domain for site in scenario.by_label("ben")])
-        targets = (urls.Target(domain=cover, path=scenario_mod.INDEX),)
-        request = curlrun.Request(targets=targets, proto=proto, host_header=hidden)
-        return request, hidden, True
-
-    request = curlrun.Request(targets=tuple(urls.page_targets(scenario, domain)), proto=proto)
-    return request, domain, False
-
-
-async def run_client(
-    scenario: scenario_mod.Scenario,
-    client: scenario_mod.Client,
     index: int,
     writer: MetricsWriter,
+    pacer: BytePacer,
+    rate: RequestPacer,
+    pool: list[str],
     args: argparse.Namespace,
     deadline: float | None,
     max_requests: int | None,
+    counter: dict,
 ) -> None:
-    profile = scenario.profile_for(client)
     rng = random.Random(scenario.run.seed + index)
-    speed = max(args.speed, 0.01)
-    min_interval = 1.0 / (profile.rate * speed)
-    done = 0
 
     while True:
-        if max_requests is not None and done >= max_requests:
+        if max_requests is not None and counter["done"] >= max_requests:
             return
         if deadline is not None and time.monotonic() >= deadline:
             return
 
-        request, page_domain, fronted = build_request(scenario, profile, rng)
-        think = rng.uniform(*profile.think_time) / speed
-        started = time.monotonic()
+        request, page = build_request(scenario, rng, pool)
+        site = scenario.sites[page]
 
-        argv = curlrun.build_argv(scenario, request, src_ip=client.src_ip,
-                                  cacert=str(scenario.run.cacert))
+        argv = curlrun.build_argv(
+            scenario, request, src_ip=args.src_ip, cacert=str(scenario.run.cacert)
+        )
         stdout = await _run(argv)
 
         labels = {
             "ts": round(time.time(), 6),
-            "client": client.id,
-            "profile": profile.name,
-            "page": page_domain,
+            "worker": index,
+            "page": page,
+            "group": site.group,
+            "server_ip": site.ip,
+            "expect_blocked": site.expect_blocked,
             "proto": request.proto,
-            "fronting": fronted,
-            "sni": request.targets[0].domain,
-            "authority": request.host_header or request.targets[0].domain,
         }
+        document = request.targets[0].url
         rows = [
-            curlrun.to_metric(record, labels={**labels, **_target_labels(scenario, record)})
+            curlrun.to_metric(
+                record,
+                labels={**labels,
+                        "document": (record.get("curl", {}).get("url_effective") == document)},
+            )
             for record in curlrun.parse_output(stdout)
         ]
         await writer.write(rows)
-        done += 1
-
-        # `rate` je zgornja meja, `think_time` nakljucni dodatek.
-        elapsed = time.monotonic() - started
-        await asyncio.sleep(max(0.0, min_interval - elapsed) + think)
-
-
-def _target_labels(scenario: scenario_mod.Scenario, record: dict) -> dict:
-    # Kategorijo doloci domena, ki jo je streznik dejansko postregel.
-    domain = record.get("x_domain") or ""
-    site = scenario.sites.get(domain)
-    return {"domain": domain or None, "category": site.category if site else None}
+        counter["done"] += 1
+        await pacer.account(sum(row.get("size_download") or 0 for row in rows))
+        await rate.account()
 
 
 async def _run(argv: list[str]) -> str:
@@ -152,22 +172,30 @@ def wait_for_cacert(path: Path) -> None:
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    scenario = scenario_mod.load(args.config)
+    scenario = scenario_mod.load(args.config, quic_share=args.quic_share)
     wait_for_cacert(scenario.run.cacert)
 
     duration = args.duration if args.duration is not None else scenario.run.duration
     deadline = None if args.requests else time.monotonic() + duration
 
-    writer = MetricsWriter(scenario.run.out / "metrics.jsonl")
-    parallel = max(args.parallel, 1)
-    count = len(scenario.clients)
+    groups = [g.strip() for g in args.groups.split(",")] if args.groups else None
+    try:
+        pool = scenario.domains_in(groups) if groups else scenario.domains()
+    except scenario_mod.ScenarioError as error:
+        raise SystemExit(f"runner: {error}")
+
+    suffix = f"_{args.label}" if args.label else ""
+    writer = MetricsWriter(scenario.run.out / f"metrics{suffix}.jsonl")
+    pacer = BytePacer(args.rate_mbps)
+    rate = RequestPacer(args.rate_rps)
+    counter = {"done": 0}
+    workers = max(args.workers, 1)
     try:
         await asyncio.gather(
             *(
-                run_client(scenario, client, worker * count + position,
-                           writer, args, deadline, args.requests)
-                for position, client in enumerate(scenario.clients)
-                for worker in range(parallel)
+                run_worker(scenario, index, writer, pacer, rate, pool, args,
+                           deadline, args.requests, counter)
+                for index in range(workers)
             )
         )
     finally:
@@ -175,13 +203,23 @@ async def main_async(args: argparse.Namespace) -> int:
 
     summary = {
         "total": summarize.stats(writer.rows),
-        "speed": args.speed,
-        "parallel": parallel,
-        "concurrency": count * parallel,
+        "by_group": summarize.by_group(writer.rows),
+        "quic_share": args.quic_share,
+        "groups": groups,
+        "rate_target_mbps": args.rate_mbps,
+        "rate_achieved_mbps": pacer.achieved_mbps,
+        "rate_target_rps": args.rate_rps,
+        "rate_achieved_rps": rate.achieved_rps,
+        "workers": workers,
+        "duration_s": duration,
     }
-    (scenario.run.out / "summary.json").write_text(
+    (scenario.run.out / f"summary{suffix}.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    print(json.dumps({k: summary[k] for k in
+                      ("rate_target_mbps", "rate_achieved_mbps",
+                       "rate_target_rps", "rate_achieved_rps", "quic_share")},
+                     ensure_ascii=False))
     print(json.dumps(summary["total"], ensure_ascii=False))
     return 0 if summary["total"]["requests"] else 1
 

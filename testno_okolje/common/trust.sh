@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#   ./trust.sh <postavitev>
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -16,7 +15,6 @@ mkdir -p pki
 : >pki/trust.pem
 sources=()
 
-# Postavitvi *_internet streznika nimata, tam gre navzgor pravi splet.
 if docker exec "$SERVER" true 2>/dev/null; then
 	for _ in $(seq 1 "$TIMEOUT"); do
 		docker exec "$SERVER" test -s "$CADDY_CA" 2>/dev/null && break
@@ -31,7 +29,6 @@ if docker exec "$SERVER" true 2>/dev/null; then
 	sources+=(Caddy)
 fi
 
-# Ob prvem klicu posrednik se ne tece in svojega CA se nima.
 if docker exec "$PROXY" test -s "$MITM_CA" 2>/dev/null; then
 	docker exec "$PROXY" cat "$MITM_CA" >>pki/trust.pem
 	sources+=(mitmproxy)

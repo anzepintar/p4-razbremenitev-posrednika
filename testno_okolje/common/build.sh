@@ -13,8 +13,6 @@ python3 gen_caddyfile.py
 docker build -t server:latest -f server/Dockerfile server
 docker build -t client:latest -f client/Dockerfile client
 
-# Fork mitmproxy s transparentnim prestrezanjem QUIC-a; po spremembi forka pozeni
-# 'docker rmi mitmproxy-quic:latest', da se slika zgradi na novo.
 if [ -z "$(docker images -q "$MITM_IMAGE")" ]; then
 	[ -d "$MITM_SRC" ] || {
 		echo "build.sh: forka mitmproxy ni v $MITM_SRC (nastavi MITM_SRC)" >&2
@@ -27,7 +25,6 @@ docker build -t proxy:latest \
 	--build-arg MITM_IMAGE="$MITM_IMAGE" \
 	-f proxy/Dockerfile proxy
 
-# Gradnja bmv2 iz izvorne kode traja 7 min, če uporabiš ze zgrajenega je hitreje
 if [ -z "$(docker images -q "$BMV2_IMAGE")" ]; then
 	docker build -t "$BMV2_IMAGE" \
 		--build-arg BMV2_VERSION="$BMV2_VERSION" \

@@ -1,7 +1,3 @@
-Osnovi ima 50 legit, 50 phishing
-Testni ima 950 legit 50 phishing
-
-
 @article{apruzzese2022mitigating,
   author={Apruzzese, Giovanni and Subrahmanian, V. S.},
   journal={IEEE Transactions on Dependable and Secure Computing}, 

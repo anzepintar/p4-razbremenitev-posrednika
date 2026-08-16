@@ -5,7 +5,6 @@ BUILD=/opt/switch/build
 SHARED=/opt/traffic/switch/build
 PORTS=()
 
-# Vrata so fiksna: 1 klient, 2 streznik, 3 mitm.
 for port in 1 2 3; do
 	iface="eth$port"
 	[ -e "/sys/class/net/$iface" ] || continue
@@ -22,7 +21,6 @@ if [ "${#PORTS[@]}" -eq 0 ]; then
 	exit 1
 fi
 
-# Cevovod in vnose zapise steer.py prek P4Runtime, zato tu zacnemo brez njega.
 mkdir -p "$SHARED"
 cp "$BUILD"/steering.json "$BUILD"/steering.p4info.txtpb "$SHARED"/
 
