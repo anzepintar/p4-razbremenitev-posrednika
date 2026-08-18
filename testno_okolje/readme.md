@@ -7,8 +7,8 @@ spremenljivki — prisotnosti stikala. Vsi ukazi tečejo iz imenika `testno_okol
 | :--- | :--- | :--- |
 | `A0` | odjemalec — posrednik — strežnik | meritev: ves promet prek posrednika |
 | `B0` | odjemalec — stikalo — posrednik — strežnik | meritev: stikalo razbremeni posrednika po naslovu in domeni |
-| `A1` | odjemalec — posrednik — prehod → splet | ročno testiranje na resničnih straneh |
-| `B1` | odjemalec — stikalo — posrednik — prehod → splet | ročno testiranje na resničnih straneh |
+| `A1` | odjemalec — posrednik — prehod → splet | ročno testiranje v brskalniku na resničnih straneh |
+| `B1` | odjemalec — stikalo — posrednik — prehod → splet | ročno testiranje v brskalniku na resničnih straneh |
 
 Posrednik teče v transparentnem načinu (`--mode transparent@8080`): QUIC (UDP/443) prestreže
 prek TPROXY, TCP/443 pa prek `REDIRECT` in `SO_ORIGINAL_DST`. Prestrezanje QUIC-a doda fork
@@ -38,6 +38,14 @@ koda forka, ne imenik `common`. Po spremembi forka:
 
 ```sh
 docker rmi mitmproxy-quic:latest && ./common/build.sh
+```
+
+Enako velja za `browser:latest` (odjemalec v `A1` in `B1`): gradi se le, če je še ni, ker so
+brskalnika z namizjem okoli 1,4 GB in ju meritev ne potrebuje. Ker stoji na `client:latest`, jo osveži
+tudi po spremembi `client/Dockerfile`:
+
+```sh
+docker rmi browser:latest && ./common/build.sh
 ```
 
 ## Nastavitev
@@ -201,7 +209,7 @@ združuje. Bela in privzeta pot se ločita po **izdajatelju potrdila**, ne po ko
 izdajatelj posrednika pomeni dešifrirano, izdajatelj strežnika pa surov tunel.
 
 Ni pokrito: postavitve `A0`, `A1` in `B1` (`conftest.py` je vezan na `B0`), risanje v
-`plot.py`, in `steer.py` proti pravemu stikalu.
+`plot.py`, `steer.py` proti pravemu stikalu in brskalnik.
 
 ## Ročno preverjanje
 
@@ -237,6 +245,98 @@ docker exec clab-B1-client curl -v --http3-only \
   --cacert /opt/traffic/pki/trust.pem https://quic.anzepintar.com/
 sudo clab destroy -t B1.clab.yml --cleanup
 ```
+
+## Brskalnik
+
+Odjemalec v `A1` in `B1` teče na `browser:latest` s chromiumom in firefoxom. Namizje je **v
+vsebniku**: `browser/vnc.sh` zažene `Xvfb` na `:99`, `openbox`, `x11vnc` in `websockify` z
+noVNC, ti pa ga postrežejo na vratih 6080. Odpri naslov, ki ga izpiše `start.sh`, na primer
+`http://172.20.20.4:6080/vnc.html`, in vpiši geslo (privzeto `diploma`). Na gostitelju ne rabiš
+ničesar — ne strežnika X ne `xauth` — in enako dela prek SSH.
+
+| nastavitev | privzeto | kaj je |
+| :--- | :--- | :--- |
+| `VNC_PASSWORD` | `diploma` | geslo za noVNC |
+| `VNC_GEOMETRY` | `1600x900x24` | velikost namizja |
+| `VNC_WEB_PORT` | `6080` | vrata noVNC |
+
+Na namizju z desnim klikom dobiš meni z obema brskalnikoma; zaganja ju `diploma-chromium` in
+`diploma-firefox`, kar sta simbolni povezavi na `browser/chromium.sh` in `browser/firefox.sh`.
+Zastavice so torej v imeniku `common` in jih spremeniš brez ponovne gradnje slike. Isti dve
+skripti požene tudi `browse.sh`, ki namizje po potrebi zažene sam.
+
+```sh
+./common/start.sh A1
+./common/browse.sh A1 chromium https://www.cloudflare.com/
+./common/browse.sh A1 firefox
+```
+
+Brskalnik h3 sam po sebi uporabi šele, ko se glave `alt-svc` nauči in je ne označi za
+pokvarjeno, zato je prva stran skoraj vedno HTTP/2. **`FORCE_QUIC=1`** domeno iz naslova
+prisili v h3 pri obeh brskalnikih; namesto `1` lahko podaš svojo domeno, pri chromiumu pa tudi
+`all` za vse. V dnevniku posrednika se potem vidi `GET https://... HTTP/3`.
+
+```sh
+FORCE_QUIC=1 ./common/browse.sh A1 chromium https://quic.anzepintar.com/
+FORCE_QUIC=1 ./common/browse.sh A1 firefox https://quic.anzepintar.com/
+FORCE_QUIC=all ./common/browse.sh A1 chromium https://www.cloudflare.com/
+```
+
+Chromium dobi `--origin-to-force-quic-on`, firefox pa v profil `user.js` z
+`network.http.http3.alt-svc-mapping-for-testing` in
+`network.http.http3.force-use-alt-svc-mapping-for-testing`. Za `all` pri firefoxu ni ustreznice,
+ker njegova preizkusna preslikava velja za eno domeno.
+
+Da h3 prek posrednika sploh steče, sta bila potrebna dva popravka. Firefox **sam izklopi h3,
+ko v zbirki najde tuji koren** — natanko to je CA posrednika — in domeno trajno prestavi na
+TCP (`hasThirdPartyRoots=1`, nato `ExcludeHttp3` v dnevniku `nsHttp`); zato pravilnik postavi
+`network.http.http3.disable_when_third_party_roots_found` na `false`. Poleg tega firefox
+`ClientHello` razdeli na dva datagrama in vsakega dopolni z ničlami **za** paketom; fork je to
+polnilo bral kot pokvarjen paket in sejo zavrgel, zato je bil popravljen
+`_client_hello_parser.py` (glej spodaj).
+
+CA posrednika je nov ob vsakem `clab deploy`, zato ga `start.sh` in vsak `browse.sh` znova
+zapišeta v odjemalca (`browser/trust_nss.sh`): v sistemsko zbirko za `curl` in v NSS zbirko za
+chromium. Firefox ga dobi iz pravilnika `Certificates.Install`, ki kaže na
+`/opt/traffic/pki/trust.pem` in se bere ob vsakem zagonu.
+
+**DoH in ECH sta zaklenjena izklopljena** (`browser/policies/`). DNS mora ostati v čistopisu,
+ker ga stikalo prepušča po `PORT_DNS`, ECH pa bi skril `server_name` in `sni_policy` bi ostal
+slep — filtriranje bi se v `B1` vedlo drugače kot v meritvi. Stanje preveriš v
+`about:policies` in `chrome://policy`.
+
+**Odjemalcu je izklopljen IPv6** (`disable_ipv6` v `exec`). Vsebnik ima na upravljavskem
+vmesniku `eth0` globalni naslov IPv6 in privzeto pot IPv6, ki gre mimo celotne postavitve;
+brskalnik pa IPv6 raje uporabi. Zaradi tega je h3 na domeno z zapisom AAAA odletel po `eth0`,
+se po štirih sekundah iztekel in tiho padel na TCP prek posrednika — QUIC se torej ni
+prestrezal, čeprav je vse skupaj delovalo. Z izklopljenim IPv6 gre `Initial` po `eth1`,
+chromium sprejme potrdilo posrednika in pošlje prave zahteve HTTP/3.
+
+Popravek v forku: `quic_parse_client_hello_from_datagrams` je doslej vsak `packet_dropped`
+iz aioquica razumel kot neveljaven `ClientHello`. Polnilo za zadnjim paketom datagrama pa ni
+paket in ga mora prejemnik prezreti (RFC 9000, 12.2), zato se zdaj napaka sproži le, kadar
+datagram ni dal nobenega paketa. Brez tega firefoxovega h3 ni bilo mogoče prestreči, curl in
+chromium pa sta delovala, ker polnilo spravita v paket.
+
+**Gostitelji z ECH so posebna zgodba.** `cloudflare-quic.com` v DNS oglašuje nastavitev ECH,
+zato chromium pravo domeno skrije in navzven pošlje javno ime `cloudflare-ech.com`; posrednik
+izda potrdilo za tisto ime (`DNS:cloudflare-ech.com`), chromium ga zavrne (`certificate
+unknown`), pri vsiljenem QUIC pa ni več poti na TCP — od tod `ERR_QUIC_PROTOCOL_ERROR`. `curl`
+ECH ne pozna, zato tam ista stran po h3 dela. Rešuje ga zastavica
+`--disable-features=EncryptedClientHello` v `browser/chromium.sh`, torej vsak zagon prek
+`browse.sh` ali menija na namizju; sama politika `EncryptedClientHelloEnabled` ne zadošča.
+Firefoxu ECH izklopi pravilnik (`network.dns.echconfig.enabled`). To ni le nadloga pri testu:
+prav ECH je tisto, kar bi stikalu v `B1` skrilo `server_name`.
+
+Chromiumu so izklopljena ozadna omrežna opravila (`--disable-background-networking` in
+podobno), ker `update.googleapis.com` in `android.clients.google.com` drugače preplavita
+`proxy_flows.jsonl`. Googlove lastne domene so v chromiumu pripete (pinning), zato jih
+posrednik ne more prestreči; v dnevniku se to vidi kot `certificate unknown` in ni napaka
+postavitve.
+
+Stikalo v `B1` prepušča le TCP, QUIC, DNS in ICMP, zato brskalnikov mDNS tiho pade v števec
+`denied`; to je pričakovano in strani ne prizadene. Chromium teče z `--no-sandbox`, ker gre za
+vsebnik za enkratno uporabo.
 
 Privzeto teče `mitmdump`, ki spletnega vmesnika nima; z `--web` steče `mitmweb` in `start.sh`
 izpiše naslov oblike `http://172.20.20.3:8081/?token=diploma` (brez `?token=` vrne 403, geslo

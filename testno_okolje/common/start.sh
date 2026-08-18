@@ -9,6 +9,9 @@ MITM_CA=/data/mitmproxy/mitmproxy-ca-cert.pem
 GRPC=10.20.1.2:9559
 PROBE_URL="${PROBE_URL:-https://quic.anzepintar.com/}"
 WEB_PASSWORD="${WEB_PASSWORD:-diploma}"
+VNC_PASSWORD="${VNC_PASSWORD:-diploma}"
+VNC_GEOMETRY="${VNC_GEOMETRY:-1600x900x24}"
+VNC_WEB_PORT="${VNC_WEB_PORT:-6080}"
 
 TOPO="${1:?uporaba: start.sh <postavitev> [--content-block] [--web] [--lazy]}"
 TOPO_FILE=../$TOPO.clab.yml
@@ -26,10 +29,10 @@ for arg in "$@"; do
 done
 
 case "$TOPO" in
-A0) HAS_SWITCH=0 HAS_SERVER=1 ;;
-A1) HAS_SWITCH=0 HAS_SERVER=0 ;;
-B0) HAS_SWITCH=1 HAS_SERVER=1 ;;
-B1) HAS_SWITCH=1 HAS_SERVER=0 ;;
+A0) HAS_SWITCH=0 HAS_SERVER=1 HAS_BROWSER=0 ;;
+A1) HAS_SWITCH=0 HAS_SERVER=0 HAS_BROWSER=1 ;;
+B0) HAS_SWITCH=1 HAS_SERVER=1 HAS_BROWSER=0 ;;
+B1) HAS_SWITCH=1 HAS_SERVER=0 HAS_BROWSER=1 ;;
 *) echo "start.sh: neznana postavitev '$TOPO'" >&2; exit 2 ;;
 esac
 
@@ -190,6 +193,25 @@ done
 wait_port mitm 8080
 phase "proxy running"
 
+if [ "$HAS_BROWSER" = 1 ]; then
+	docker exec "$(node client)" /opt/traffic/browser/trust_nss.sh \
+		>>"$OUT/browser.log" 2>&1 || {
+		echo "start.sh: CA ni bilo mogoce zaupati v odjemalcu, glej $OUT/browser.log" >&2
+		exit 1
+	}
+	phase "CA zaupan v odjemalcu (sistem + NSS)"
+
+	docker exec -d \
+		-e VNC_PASSWORD="$VNC_PASSWORD" \
+		-e VNC_GEOMETRY="$VNC_GEOMETRY" \
+		-e VNC_WEB_PORT="$VNC_WEB_PORT" \
+		"$(node client)" sh -c 'exec /opt/traffic/browser/vnc.sh >>/opt/traffic/out/vnc.log 2>&1'
+	wait_port client "$VNC_WEB_PORT"
+	CLIENT_IP=$(docker inspect -f \
+		'{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(node client)")
+	phase "namizje: http://$CLIENT_IP:$VNC_WEB_PORT/vnc.html (geslo $VNC_PASSWORD)"
+fi
+
 if [ "$WEB" = 1 ]; then
 	wait_port mitm 8081
 	MITM_IP=$(docker inspect -f \
@@ -226,3 +248,7 @@ done
 	echo "start.sh: $TARGET ni dosegljiv (koda '${code:-}')" >&2
 	exit 1
 }
+
+if [ "$HAS_BROWSER" = 1 ]; then
+	phase "brskalnik: ./common/browse.sh $TOPO [chromium|firefox] <url>"
+fi

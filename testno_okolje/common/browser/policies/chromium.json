@@ -1,0 +1,8 @@
+{
+  "DnsOverHttpsMode": "off",
+  "MetricsReportingEnabled": false,
+  "PasswordManagerEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "BrowserSignin": 0,
+  "EncryptedClientHelloEnabled": false
+}

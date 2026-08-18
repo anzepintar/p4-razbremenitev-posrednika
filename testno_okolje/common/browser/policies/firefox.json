@@ -1,0 +1,39 @@
+{
+  "policies": {
+    "Certificates": {
+      "ImportEnterpriseRoots": true,
+      "Install": [
+        "/opt/traffic/pki/trust.pem"
+      ]
+    },
+    "DNSOverHTTPS": {
+      "Enabled": false,
+      "Locked": true
+    },
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "OverrideFirstRunPage": "",
+    "Preferences": {
+      "network.dns.echconfig.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "network.dns.http3_echconfig.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.aboutwelcome.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "network.http.http3.disable_when_third_party_roots_found": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "network.http.http3.enable": {
+        "Value": true,
+        "Status": "locked"
+      }
+    }
+  }
+}

@@ -13,6 +13,10 @@ python3 gen_caddyfile.py
 docker build -t server:latest -f server/Dockerfile server
 docker build -t client:latest -f client/Dockerfile client
 
+if [ -z "$(docker images -q browser:latest)" ]; then
+	docker build -t browser:latest -f browser/Dockerfile browser
+fi
+
 if [ -z "$(docker images -q "$MITM_IMAGE")" ]; then
 	[ -d "$MITM_SRC" ] || {
 		echo "build.sh: forka mitmproxy ni v $MITM_SRC (nastavi MITM_SRC)" >&2

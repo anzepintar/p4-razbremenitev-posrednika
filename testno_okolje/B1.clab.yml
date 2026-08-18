@@ -16,10 +16,14 @@ topology:
 
     client:
       kind: linux
-      image: client:latest
+      image: browser:latest
+      shm-size: 1G
+      env:
+        DISPLAY: ":99"
       binds:
         - common:/opt/traffic
       exec:
+        - bash -c "echo 1 >/proc/sys/net/ipv6/conf/all/disable_ipv6"
         - ip link set dev eth1 address 00:00:00:00:01:0a
         - ip addr add 10.0.1.10/24 dev eth1
         - ip link set dev eth1 up

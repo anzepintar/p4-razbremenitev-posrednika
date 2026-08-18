@@ -19,7 +19,7 @@ case "${1:-}" in
 	docker rmi -f $DERIVED >/dev/null 2>&1 || true
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 	if [ "$1" = --clean-all ]; then
-		docker rmi -f mitmproxy-quic:latest >/dev/null 2>&1 || true
+		docker rmi -f mitmproxy-quic:latest browser:latest >/dev/null 2>&1 || true
 		docker images -q 'bmv2-perf' | xargs -r docker rmi -f >/dev/null 2>&1 || true
 	fi
 	;;
