@@ -10,10 +10,12 @@ from pathlib import Path
 
 import pytest
 
-COMMON = Path(__file__).resolve().parent.parent / "common"
+ROOT = Path(__file__).resolve().parent.parent
+OKOLJE = ROOT / "okolje"
 
-sys.path.insert(0, str(COMMON))
-sys.path.insert(0, str(COMMON / "client"))
+sys.path.insert(0, str(ROOT / "orodja"))
+sys.path.insert(0, str(OKOLJE))
+sys.path.insert(0, str(OKOLJE / "client"))
 
 TOPO = "B0"
 CLIENT = f"clab-{TOPO}-client"
@@ -69,10 +71,10 @@ def proxy_up() -> bool:
 @pytest.fixture(scope="session")
 def lab():
     if not dataplane_up():
-        pytest.skip(f"postavitev {TOPO} ne tece; zazeni ./common/start.sh {TOPO}")
+        pytest.skip(f"postavitev {TOPO} ne tece; zazeni ./orodja/start.sh {TOPO}")
     if not proxy_up():
         pytest.skip(
-            f"posrednik v {TOPO} ne poslusa na 8080; poglej common/out/mitm.log "
+            f"posrednik v {TOPO} ne poslusa na 8080; poglej okolje/out/mitm.log "
             "- najbrz se mitmdump ni zagnal"
         )
     return TOPO
@@ -80,10 +82,10 @@ def lab():
 
 @pytest.fixture(scope="session")
 def lists_dir():
-    return COMMON / "lists"
+    return OKOLJE / "lists"
 
 
-TESTSET = COMMON / "server" / "testset"
+TESTSET = OKOLJE / "server" / "testset"
 
 
 def testset_domains(subset: str = "testni") -> set[str]:
@@ -96,14 +98,14 @@ def testset_domains(subset: str = "testni") -> set[str]:
 def listed_domains() -> dict[str, list[str]]:
     import sni
 
-    return sni.load("domain", COMMON / "lists")
+    return sni.load("domain", OKOLJE / "lists")
 
 
 def groups() -> dict[str, list[str]]:
     import experiment as exp
 
     try:
-        return exp.by_group(exp.read_assignment(COMMON / "lists" / "assignment.json"))
+        return exp.by_group(exp.read_assignment(OKOLJE / "lists" / "assignment.json"))
     except exp.ExperimentError as error:
         pytest.skip(str(error))
 
@@ -154,7 +156,7 @@ def cert_issuer(domain: str, proto: str = "h2", timeout: int = 15) -> str:
 def flow_count(domain: str) -> int:
     out = docker(
         MITM, "sh", "-c",
-        f"grep -c '\"{domain}\"' /opt/traffic/out/proxy_flows.jsonl 2>/dev/null || echo 0",
+        f"grep -c '\"{domain}\"' /opt/traffic/out/proxy_flows.jsonl 2>/dev/null || true",
         check=False, timeout=30,
     ).stdout
     return int(out.strip() or 0)
@@ -173,7 +175,7 @@ def capture(iface: str, count: int, expr: str, seconds: int = 20) -> str:
     dump = f"/tmp/cap_{iface}_{next(_capture_seq)}_{int(time.time())}.txt"
     docker(
         SWITCH, "sh", "-c",
-        f"exec timeout {seconds} tcpdump -i {iface} -nn -c {count} '{expr}' >{dump} 2>&1",
+        f"exec timeout {seconds} tcpdump -l -i {iface} -nn -c {count} '{expr}' >{dump} 2>&1",
         detach=True, timeout=15,
     )
     for _ in range(40):

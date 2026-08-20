@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-P4 = Path(__file__).resolve().parents[2] / "common" / "switch" / "steering.p4"
+P4 = Path(__file__).resolve().parents[2] / "okolje" / "switch" / "steering.p4"
 
 EXT_SERVER_NAME = 0
 EXT_KEY_SHARE = 51

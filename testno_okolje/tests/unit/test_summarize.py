@@ -4,28 +4,17 @@ from runner import summarize
 
 
 def row(group, *, expect_blocked, exitcode=0, blocked=False, http_code=200,
-        document=True, url=None, time_total=0.1):
+        url="https://x/index.html", time_total=0.1):
     return {
         "group": group,
         "expect_blocked": expect_blocked,
         "exitcode": exitcode,
         "blocked": blocked,
         "http_code": http_code,
-        "document": document,
-        "url": url or ("https://x/index.html" if document else "https://x/_asset.bin"),
+        "url": url,
         "time_total": time_total,
         "size_download": 1000,
     }
-
-
-class TestIsDocument:
-    def test_izrecna_oznaka_ima_prednost(self):
-        assert summarize.is_document({"document": True, "url": "https://x/a.bin"})
-        assert not summarize.is_document({"document": False, "url": "https://x/index.html"})
-
-    def test_brez_oznake_se_sklepa_iz_naslova(self):
-        assert summarize.is_document({"url": "https://x/index.html"})
-        assert not summarize.is_document({"url": "https://x/_asset.bin"})
 
 
 class TestByGroup:
@@ -72,31 +61,27 @@ class TestByGroup:
         assert summarize.by_group(rows)["sni_black"]["as_expected_pct"] == 50.0
 
 
-class TestPodviriNePokvarijoDeleza:
+class TestAsExpectedPct:
 
-    def rows(self, subresources: int):
-        page = row("content_block", expect_blocked=True, blocked=True, http_code=403)
-        assets = [row("content_block", expect_blocked=True, document=False)
-                  for _ in range(subresources)]
-        return [page, *assets]
+    def blocked_rows(self, count: int):
+        return [row("content_block", expect_blocked=True, blocked=True, http_code=403)
+                for _ in range(count)]
+
+    def test_prazen_seznam_nima_deleza(self):
+        assert summarize.as_expected_pct([]) is None
 
     def test_popolna_blokada_je_100_odstotna(self):
-        out = summarize.by_group(self.rows(14))["content_block"]
-        assert out["as_expected_pct"] == 100.0
+        assert summarize.as_expected_pct(self.blocked_rows(15)) == 100.0
 
-    def test_strani_in_podviri_se_stejejo_loceno(self):
-        out = summarize.by_group(self.rows(14))["content_block"]
-        assert out["pages"] == 1
-        assert out["subresources"] == 14
-        assert out["requests"] == 15
+    def test_delez_ni_odvisen_od_stevila_zahtev(self):
+        assert (summarize.as_expected_pct(self.blocked_rows(2))
+                == summarize.as_expected_pct(self.blocked_rows(30)) == 100.0)
 
-    def test_delez_ni_odvisen_od_stevila_podvirov(self):
-        few = summarize.by_group(self.rows(2))["content_block"]
-        many = summarize.by_group(self.rows(30))["content_block"]
-        assert few["as_expected_pct"] == many["as_expected_pct"] == 100.0
+    def test_neblokirana_zahteva_med_blokiranimi_se_pozna(self):
+        rows = self.blocked_rows(1) + [row("content_block", expect_blocked=True)]
+        assert summarize.as_expected_pct(rows) == 50.0
 
-    def test_neblokirana_stran_med_blokiranimi_se_pozna(self):
-        rows = self.rows(14) + [row("content_block", expect_blocked=True)]
-        out = summarize.by_group(rows)["content_block"]
-        assert out["pages"] == 2
-        assert out["as_expected_pct"] == 50.0
+    def test_dovoljena_skupina_se_meri_obrnjeno(self):
+        rows = [row("unknown", expect_blocked=False),
+                row("unknown", expect_blocked=False, exitcode=28, http_code=0)]
+        assert summarize.as_expected_pct(rows) == 50.0

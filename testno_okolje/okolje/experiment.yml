@@ -1,0 +1,32 @@
+domains:
+  total: 100
+  groups:
+    ip_black: 10
+    ip_white: 10
+    sni_black: 10
+    sni_white: 10
+    content_block: 10
+    unknown: 50
+
+server_ips:
+  default: 10.0.2.10
+  ip_black: 10.0.2.11
+  ip_white: 10.0.2.12
+
+protocols:
+  h2: 0.0
+  h3: 1.0
+
+modes: [brez, ip_black, ip_white, sni_black, sni_white, content_block]
+
+load:
+  connect_timeout_s: 3.000
+  max_time_s: 10
+  object_kb: 0
+
+run:
+  seed: 1234
+  out: /opt/traffic/out
+  cacert: /opt/traffic/pki/trust.pem
+  testset: /opt/traffic/server/testset
+  subset: testni

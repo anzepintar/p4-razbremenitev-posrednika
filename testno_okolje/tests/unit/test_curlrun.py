@@ -3,12 +3,13 @@ from __future__ import annotations
 import pytest
 
 from runner import curlrun
-from runner.urls import Target
+from runner.scenario import BIG, INDEX
 
 
 class FakeRun:
     connect_timeout_s = 2.0
     max_time_s = 10.0
+    object_kb = 0
 
 
 class FakeScenario:
@@ -25,50 +26,33 @@ def scenario():
     return FakeScenario()
 
 
-def target(domain, path="/index.html"):
-    return Target(domain=domain, path=path)
+def request_for(domain, path="/index.html", **kwargs):
+    return curlrun.Request(domain=domain, path=path, **kwargs)
 
 
 class TestBuildArgv:
     def test_iztek_pride_iz_nastavitve(self, scenario):
-        request = curlrun.Request(targets=(target("a.com"),), proto="h2")
-        argv = curlrun.build_argv(scenario, request, src_ip=None, cacert="ca.pem")
+        argv = curlrun.build_argv(scenario, request_for("a.com", proto="h2"), cacert="ca.pem")
         assert argv[argv.index("--connect-timeout") + 1] == "2.0"
         assert argv[argv.index("--max-time") + 1] == "10.0"
 
     def test_protokol_doloci_zastavico(self, scenario):
         for proto, flag in (("h2", "--http2"), ("h3", "--http3-only")):
-            request = curlrun.Request(targets=(target("a.com"),), proto=proto)
-            assert flag in curlrun.build_argv(scenario, request, src_ip="10.0.1.10", cacert="ca.pem")
+            argv = curlrun.build_argv(scenario, request_for("a.com", proto=proto), cacert="ca.pem")
+            assert flag in argv
 
     def test_neznan_protokol_je_napaka(self, scenario):
-        request = curlrun.Request(targets=(target("a.com"),), proto="h9")
         with pytest.raises(KeyError):
-            curlrun.build_argv(scenario, request, src_ip="10.0.1.10", cacert="ca.pem")
+            curlrun.build_argv(scenario, request_for("a.com", proto="h9"), cacert="ca.pem")
 
-    def test_izvorni_naslov_je_vsiljen(self, scenario):
-        request = curlrun.Request(targets=(target("a.com"),), proto="h2")
-        argv = curlrun.build_argv(scenario, request, src_ip="10.0.1.12", cacert="ca.pem")
-        assert argv[argv.index("--interface") + 1] == "10.0.1.12"
+    def test_domena_dobi_resolve_na_svoj_streznik(self, scenario):
+        argv = curlrun.build_argv(scenario, request_for("b.com", proto="h2"), cacert="ca.pem")
+        assert argv[argv.index("--resolve") + 1] == "b.com:443:10.0.2.11"
 
-    def test_vsaka_domena_dobi_resolve_na_streznik(self, scenario):
-        request = curlrun.Request(
-            targets=(target("a.com"), target("b.com"), target("a.com", "/x")), proto="h2"
-        )
-        argv = curlrun.build_argv(scenario, request, src_ip="10.0.1.10", cacert="ca.pem")
-        resolves = [argv[i + 1] for i, a in enumerate(argv) if a == "--resolve"]
-        assert sorted(resolves) == ["a.com:443:10.0.2.10", "b.com:443:10.0.2.11"]
-
-    def test_vec_ciljev_tece_vzporedno(self, scenario):
-        one = curlrun.Request(targets=(target("a.com"),), proto="h2")
-        many = curlrun.Request(targets=(target("a.com"), target("b.com")), proto="h2")
-        assert "--parallel" not in curlrun.build_argv(scenario, one, src_ip="1.1.1.1", cacert="c")
-        assert "--parallel" in curlrun.build_argv(scenario, many, src_ip="1.1.1.1", cacert="c")
-
-    def test_prikrivanje_domene_doda_glavo_host(self, scenario):
-        request = curlrun.Request(targets=(target("a.com"),), proto="h2", host_header="krinka.com")
-        argv = curlrun.build_argv(scenario, request, src_ip="10.0.1.10", cacert="ca.pem")
-        assert "Host: krinka.com" in argv
+    def test_en_cilj_na_zahtevo(self, scenario):
+        argv = curlrun.build_argv(scenario, request_for("a.com", proto="h2"), cacert="c")
+        assert argv[-1] == "https://a.com/index.html"
+        assert argv.count("--output") == 1
 
 
 class TestParseOutput:
@@ -108,33 +92,17 @@ class TestToMetric:
 class TestCiljZahteve:
 
     def scenario_with(self, object_kb):
+        from runner.scenario import Scenario
+
         class Run:
             connect_timeout_s = 0.5
             max_time_s = 60.0
 
-        class Scenario:
-            run = Run()
-
-            def ip_for(self, domain):
-                return "10.0.2.10"
-
         Run.object_kb = object_kb
-        return Scenario()
+        return Scenario(sites={}, run=Run(), quic_share=0.0)
 
     def test_dokument_pri_nic(self):
-        from runner import urls
-
-        targets = urls.page_targets(self.scenario_with(0), "a.com")
-        assert [t.path for t in targets] == ["/index.html"]
+        assert self.scenario_with(0).object_path == INDEX
 
     def test_velik_objekt_ko_je_nastavljen(self):
-        from runner import urls
-
-        targets = urls.page_targets(self.scenario_with(10240), "a.com")
-        assert [t.path for t in targets] == ["/big.bin"]
-
-    def test_vedno_en_sam_cilj(self):
-        from runner import urls
-
-        for kb in (0, 1024):
-            assert len(urls.page_targets(self.scenario_with(kb), "a.com")) == 1
+        assert self.scenario_with(10240).object_path == BIG

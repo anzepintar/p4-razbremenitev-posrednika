@@ -1,11 +1,12 @@
 testni_podatki/*
 !testni_podatki/vir.txt
-testno_okolje/common/pki/
-testno_okolje/common/out/
-testno_okolje/common/server/testset/
-testno_okolje/common/server/sites.caddy
-testno_okolje/common/switch/build/
+testno_okolje/okolje/pki/
+testno_okolje/okolje/out/
+testno_okolje/okolje/server/testset/
+testno_okolje/okolje/server/sites.caddy
+testno_okolje/okolje/switch/build/
 clab-*/
+.pytest_cache/
 __pycache__/
 *.pyc
 dokumentacija/zapiski/*

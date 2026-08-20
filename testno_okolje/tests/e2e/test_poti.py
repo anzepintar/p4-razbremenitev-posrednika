@@ -109,6 +109,52 @@ class TestStevci:
         )
 
 
+class TestQuicRazsodba:
+
+    def test_zahteva_h3_da_quic_sni(self, lab, benign):
+        before = quiet_counters()
+        curl(benign, "h3", timeout=8)
+        after = counters()
+        assert after["quic_sni"] - before["quic_sni"] == 1, (
+            "stikalo mora iz zacetnega paketa QUIC prebrati natanko eno ime"
+        )
+
+    def test_neznana_domena_gre_prek_posrednika(self, lab, benign):
+        before = quiet_counters()
+        curl(benign, "h3", timeout=8)
+        after = counters()
+        assert after["quic"] > before["quic"]
+        assert after["quic_white"] == before["quic_white"]
+
+
+class TestQuicBelaDomena:
+
+    def test_zahteva_uspe(self, lab):
+        assert curl(pick("white"), "h3")["http_code"] == 200
+
+    def test_potrdilo_je_strezniško(self, lab):
+        issuer = cert_issuer(pick("white"), "h3")
+        assert issuer, "izdajatelja ni bilo mogoce prebrati"
+        assert "mitmproxy" not in issuer, f"bela domena h3 je bila desifrirana: {issuer}"
+
+    def test_stikalo_tok_spelje_mimo_posrednika(self, lab):
+        domain = pick("white")
+        before = quiet_counters()
+        assert curl(domain, "h3")["http_code"] == 200
+        after = counters()
+        assert after["quic_white"] > before["quic_white"]
+        assert after["quic"] == before["quic"], (
+            "beli tok QUIC ne sme dobiti nobenega paketa prek posrednika"
+        )
+
+    def test_posrednik_seje_ne_zabelezi(self, lab):
+        domain = pick("white")
+        before = flow_count(domain)
+        assert curl(domain, "h3")["http_code"] == 200
+        time.sleep(2)
+        assert flow_count(domain) == before
+
+
 class TestPovratniQuic:
 
     def test_stikalo_steje_odhodni_quic(self, lab, benign):
@@ -180,6 +226,28 @@ class TestCrnaDomena:
     def test_posrednik_seje_ne_zabelezi(self, lab):
         domain = pick("black")
         curl(domain, "h2", timeout=8)
+        time.sleep(1)
+        hosts = {flow.get("host") or flow.get("pretty_host") for flow in proxy_flows()}
+        assert domain not in hosts
+
+
+class TestQuicCrnaDomena:
+
+    def test_zahteva_ne_uspe(self, lab):
+        domain = pick("black")
+        result = curl(domain, "h3", timeout=8)
+        assert result.get("http_code") in (0, None) or result.get("exitcode", 0) != 0
+
+    def test_stevec_na_stikalu_naraste(self, lab):
+        domain = pick("black")
+        before = counters()
+        curl(domain, "h3", timeout=8)
+        after = counters()
+        assert after["quic_blocked"] > before["quic_blocked"]
+
+    def test_posrednik_seje_ne_zabelezi(self, lab):
+        domain = pick("black")
+        curl(domain, "h3", timeout=8)
         time.sleep(1)
         hosts = {flow.get("host") or flow.get("pretty_host") for flow in proxy_flows()}
         assert domain not in hosts

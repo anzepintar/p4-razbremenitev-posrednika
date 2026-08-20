@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-COMMON = Path(__file__).resolve().parents[2] / "common"
+COMMON = Path(__file__).resolve().parents[2] / "okolje"
 
 
 def load_module():

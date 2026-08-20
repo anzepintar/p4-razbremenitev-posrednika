@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 
 import pytest
 
 import plot
 from runner.__main__ import RequestPacer
-from runner.scenario import ScenarioError, Scenario, Site
+from runner.scenario import (
+    ScenarioError, Scenario, Site, build_pool, parse_groups,
+)
 
 DURATION = 30.0
 SWITCH_ZERO = {key: 0 for key in plot.SWITCH_KEYS}
@@ -80,146 +83,167 @@ class TestIzbiraSkupin:
             scenario({"unknown": 2}).domains_in(["sni_black"])
 
 
-def link(packets: int = 0, byte_count: int = 0) -> dict:
-    return {"rx_packets": packets, "tx_packets": 0,
+class TestMesanica:
+
+    def pool(self, spec: str):
+        sites = scenario({"unknown": 4, "sni_white": 2, "ip_black": 1})
+        return build_pool(sites, parse_groups(spec))
+
+    def test_brez_skupin_vzame_ves_nabor(self):
+        sites = scenario({"unknown": 2, "sni_white": 1})
+        assert len(build_pool(sites, None).domains[""]) == 3
+
+    def test_ena_skupina_ostane_enakomerna(self):
+        pool = self.pool("unknown")
+        rng = random.Random(0)
+        picks = {pool.pick(rng) for _ in range(200)}
+        assert picks == set(pool.domains["unknown"])
+
+    def test_utezi_dolocajo_razmerja(self):
+        pool = self.pool("unknown:80,sni_white:20")
+        rng = random.Random(1234)
+        picks = [pool.pick(rng) for _ in range(4000)]
+        share = sum(1 for p in picks if p.startswith("unknown")) / len(picks)
+        assert share == pytest.approx(0.80, abs=0.03)
+
+    def test_utez_nic_izpade_iz_nabora(self):
+        pool = self.pool("unknown:1,ip_black:0")
+        assert "ip_black" not in pool.domains
+
+    def test_brez_utezi_so_skupine_enakovredne(self):
+        assert self.pool("unknown,sni_white").weights == (1.0, 1.0)
+
+    def test_neznana_utez_je_napaka(self):
+        with pytest.raises(ScenarioError, match="ni stevilo"):
+            parse_groups("unknown:veliko")
+
+    def test_same_nicle_so_napaka(self):
+        with pytest.raises(ScenarioError, match="nic"):
+            parse_groups("unknown:0,sni_white:0")
+
+    def test_negativna_utez_je_napaka(self):
+        with pytest.raises(ScenarioError, match="negativne"):
+            parse_groups("unknown:-1")
+
+
+def link(byte_count: int = 0) -> dict:
+    return {"rx_packets": byte_count // 1400, "tx_packets": 0,
             "rx_bytes": byte_count, "tx_bytes": 0}
 
 
-GROUPS = {"black.example": "ip_black", "ozadje.example": "unknown"}
+CLIENT_BYTES = 12_000_000
+SIZE = 100_000
 
 
-def cell_run(directory, *, background: int = 10, policy: int = 0,
-             blocked: bool = True, verdict: float = 1.0, client_pkts: int = 1000,
-             cpu: float = 50.0, switch_after: dict | None = None,
-             stopped_share: float = 1.0, flows: list[str] | None = None):
-    def row(index, group, expect, exitcode, total):
-        return {
-            "ts": 1000.0 + index * 0.5,
+def cell_run(directory, *, requests: int = 100, duration: float = DURATION,
+             warmup: float = 0.0, blocked: bool = False, stopped_share: float = 1.0,
+             cpu_ms: float = 1_500.0, quota: float | None = 2.0,
+             proxy_bytes: int | None = None, switch_after: dict | None = None,
+             flows: int = 0, node: str = "mitm"):
+    directory.mkdir(parents=True, exist_ok=True)
+    limit = int(requests * stopped_share)
+    rows = []
+    for index in range(requests):
+        halted = blocked and index < limit
+        rows.append({
+            "ts": 1000.0 + index * (duration / max(requests, 1)),
             "url": "https://x.example/index.html",
-            "document": True,
-            "group": group,
-            "expect_blocked": expect,
-            "exitcode": exitcode,
-            "time_appconnect": total * 0.4,
-            "time_total": total,
-            "size_download": 0 if exitcode else 1_000_000,
-        }
-
-    (directory / "metrics_ozadje.jsonl").write_text(
-        "".join(json.dumps(row(i, "unknown", False, 0, 0.05)) + "\n"
-                for i in range(background))
-    )
-    (directory / "summary_ozadje.json").write_text(
-        json.dumps({"duration_s": DURATION, "workers": 16})
-    )
-    if policy:
-        limit = int(policy * stopped_share)
-        (directory / "metrics_politika.jsonl").write_text(
-            "".join(json.dumps(
-                row(i, "ip_black", blocked, 28 if (blocked and i < limit) else 0, verdict)
-            ) + "\n" for i in range(policy))
-        )
-        (directory / "summary_politika.json").write_text(
-            json.dumps({"duration_s": DURATION, "workers": 108})
-        )
+            "group": "sni_black" if blocked else "unknown",
+            "expect_blocked": blocked,
+            "exitcode": 28 if halted else 0,
+            "time_appconnect": None if halted else 0.02,
+            "time_total": 0.05,
+            "size_download": 0 if halted else SIZE,
+        })
+    (directory / "metrics.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows))
+    (directory / "meta.json").write_text(json.dumps(
+        {"meritev": "test", "postavitev": "B0", "groups": "unknown",
+         "workers": 16, "duration_s": duration, "warmup_s": warmup}))
 
     (directory / "links_before.json").write_text(json.dumps(
         {"client": {"eth1": link()}, "mitm": {"eth1": link()}}))
     (directory / "links_after.json").write_text(json.dumps(
-        {"client": {"eth1": link(client_pkts, 12_000_000)},
-         "mitm": {"eth1": link(client_pkts), "eth2": link(client_pkts)}}))
-    (directory / "nodes.json").write_text(
-        json.dumps({"summary": {"mitm": {"cpu_pct_avg": cpu, "mem_mb_avg": 60.0}}})
-    )
+        {"client": {"eth1": link(CLIENT_BYTES)},
+         "mitm": {"eth1": link(CLIENT_BYTES if proxy_bytes is None else proxy_bytes)}}))
+
+    after = {"usage_usec": int(cpu_ms * 1000)}
+    if quota is not None:
+        after["cpu_quota"] = quota
+    (directory / "cpu_before.json").write_text(json.dumps({node: {"usage_usec": 0}}))
+    (directory / "cpu_after.json").write_text(json.dumps({node: after}))
+
     if switch_after is not None:
         (directory / "switch_before.json").write_text(json.dumps(SWITCH_ZERO))
         (directory / "switch_after.json").write_text(json.dumps(switch_after))
-    if flows is not None:
+    if flows:
         (directory / "proxy_flows.jsonl").write_text(
-            "".join(json.dumps({"ts": 1.0, "kind": "http", "host": h}) + "\n"
-                    for h in flows)
-        )
-    return plot.load_cell(directory, GROUPS)
+            "".join(json.dumps({"ts": 1.0, "host": "x"}) + "\n" for _ in range(flows)))
+    return plot.load_cell(directory)
 
 
 class TestIzracunCelice:
     def test_hitrost_deli_s_trajanjem_in_ne_z_razponom(self, tmp_path):
-        cell = cell_run(tmp_path, background=10)
+        cell = cell_run(tmp_path, requests=100)
         assert cell["duration_s"] == DURATION
-        assert cell["goodput_mbps"] == pytest.approx(2.67, abs=0.01)
+        assert cell["goodput_mbps"] == pytest.approx(100 * SIZE * 8 / DURATION / 1e6, rel=0.01)
 
-    def test_hitrost_ne_preseze_zice(self, tmp_path):
-        cell = cell_run(tmp_path, background=10)
-        assert cell["goodput_mbps"] <= cell["wire_mbps"]
+    def test_ogrevanje_izpade_iz_okna(self, tmp_path):
+        cell = cell_run(tmp_path, requests=100, warmup=DURATION / 2)
+        assert cell["duration_s"] == DURATION / 2
+        assert cell["requests"] == 50
 
-    def test_brez_razbremenitve_ko_gre_vsaka_zahteva_skozi_posrednika(self, tmp_path):
-        cell = cell_run(tmp_path, background=10, flows=["ozadje.example"] * 10)
-        assert cell["offload_pct"] == pytest.approx(0.0)
+    def test_blokirani_promet_ne_steje_v_propustnost(self, tmp_path):
+        cell = cell_run(tmp_path, requests=100, blocked=True)
+        assert cell["goodput_mbps"] == 0.0
+        assert cell["requests"] == 100
 
-    def test_razbremenitev_je_delez_zahtev_brez_seje(self, tmp_path):
-        cell = cell_run(tmp_path, background=10, policy=90,
-                        flows=["ozadje.example"] * 10)
-        assert cell["offload_pct"] == pytest.approx(90.0)
+    def test_cpu_je_na_poslano_zahtevo_tudi_ce_ni_prisla_do_posrednika(self, tmp_path):
+        cell = cell_run(tmp_path, requests=100, blocked=True, cpu_ms=1_500.0,
+                        proxy_bytes=0)
+        assert cell["proxy_kb_per_request"] == 0.0
+        assert cell["cpu_ms_per_request_mitm"] == pytest.approx(15.0)
 
-    def test_brez_dnevnika_sej_razbremenitve_ni(self, tmp_path):
-        assert cell_run(tmp_path, background=10)["offload_pct"] is None
+    def test_cpu_je_razlika_in_ne_absolutna_vrednost(self):
+        before = {"mitm": {"usage_usec": 900_000_000}}
+        after = {"mitm": {"usage_usec": 915_000_000}}
+        assert plot.cpu_delta(before, after)["mitm"]["cpu_ms"] == pytest.approx(15_000.0)
 
-    def test_cpu_na_zahtevo_steje_oba_tokova(self, tmp_path):
-        cell = cell_run(tmp_path, background=10, policy=90, cpu=50.0)
-        assert cell["cpu_ms_per_request_mitm"] == pytest.approx(150.0, abs=0.5)
+    def test_izraba_je_jedra_deljena_s_kvoto(self, tmp_path):
+        cell = cell_run(tmp_path, duration=30.0, cpu_ms=15_000.0, quota=2.0)
+        assert cell["cpu_util_mitm"] == pytest.approx(0.25, abs=0.01)
+
+    def test_brez_kvote_izrabe_ni(self, tmp_path):
+        assert cell_run(tmp_path, quota=None)["cpu_util_mitm"] is None
 
     def test_manjkajoce_vozlisce_ni_nic(self, tmp_path):
-        cell = cell_run(tmp_path)
-        assert cell["cpu_ms_per_request_switch"] is None
+        assert cell_run(tmp_path)["cpu_ms_per_request_switch"] is None
 
-    def test_cas_do_razsodbe(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10, verdict=1.0)
-        assert cell["verdict_p50_s"] == pytest.approx(1.0)
-
-    def test_brez_politike_ni_razsodbe(self, tmp_path):
-        cell = cell_run(tmp_path, policy=0)
-        assert cell["verdict_p50_s"] is None
-        assert cell["policy_ok_pct"] is None
+    def test_promet_do_posrednika_na_zahtevo(self, tmp_path):
+        cell = cell_run(tmp_path, requests=100, proxy_bytes=1024 * 500)
+        assert cell["proxy_kb_per_request"] == pytest.approx(5.0)
 
     def test_pravilnost_politike(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10, blocked=True, stopped_share=1.0)
-        assert cell["policy_ok_pct"] == 100.0
+        assert cell_run(tmp_path, blocked=True, stopped_share=1.0)["policy_ok_pct"] == 100.0
 
     def test_pravilnost_pade_ko_blokada_ne_ujame(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10, blocked=True, stopped_share=0.5)
+        cell = cell_run(tmp_path, blocked=True, stopped_share=0.5)
         assert cell["policy_ok_pct"] == 50.0
-        assert cell["policy_ok_pct"] < plot.VALID_PCT
+        assert plot.below_floor(cell, "h2", "sni_black")
 
+    def test_prag_pravilnosti_je_nizji_tam_kjer_p4_ne_more_vsega(self, tmp_path):
+        cell = cell_run(tmp_path, blocked=True, stopped_share=0.97)
+        assert cell["policy_ok_pct"] == 97.0
+        assert not plot.below_floor(cell, "h2", "sni_black")
+        assert plot.below_floor(cell, "h3", "sni_black")
 
-class TestSejePosrednika:
-
-    def test_ozadje_ne_steje_med_seje_politike(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10,
-                        flows=["black.example"] * 10 + ["ozadje.example"] * 200)
-        assert cell["proxy_sessions"] == 210
-        assert cell["proxy_sessions_per_policy_request"] == 1.0
-
-    def test_razbremenjena_politika_nima_sej(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10, flows=["ozadje.example"] * 200)
-        assert cell["proxy_sessions_per_policy_request"] == 0.0
-
-    def test_vrata_v_imenu_ne_zmotijo(self, tmp_path):
-        cell = cell_run(tmp_path, policy=10, flows=["black.example:443"] * 10)
-        assert cell["proxy_sessions_per_policy_request"] == 1.0
-
-    def test_naslov_skupine_se_preslika(self):
-        lookup = plot.flow_groups({
-            "domains": {"a.example": {"group": "unknown"}},
-            "server_ips": {"default": "10.0.2.10", "ip_white": "10.0.2.12"},
-        })
-        assert lookup["a.example"] == "unknown"
-        assert lookup["10.0.2.12"] == "ip_white"
-        assert "10.0.2.10" not in lookup
+    def test_prazna_celica_ni_celica(self, tmp_path):
+        (tmp_path / "meta.json").write_text(json.dumps({"duration_s": 10, "warmup_s": 0}))
+        assert plot.load_cell(tmp_path) is None
 
 
 class TestStevciStikala:
-
-    def test_odsteje_zacetno_stanje(self, tmp_path):
+    def test_odsteje_zacetno_stanje(self):
         before = {key: 100_000 for key in plot.SWITCH_KEYS}
         after = dict(before, ip_blocked=100_300, sni_seen=101_000)
         assert plot.counter_delta(before, after)["ip_blocked"] == 300
@@ -233,27 +257,38 @@ class TestStevciStikala:
         assert cell_run(tmp_path)["switch"] == {}
 
 
-class TestPrednost:
+class TestPragRentabilnosti:
 
-    def test_razbremenitev_kot_odstotne_tocke(self):
-        data = {("A0", "h2", "ip_black"): {"offload_pct": {"med": 2.0}},
-                ("B0", "h2", "ip_black"): {"offload_pct": {"med": 99.7}}}
-        got = plot.advantage(data, "offload_pct", "h2", "ip_black", True, "delta",
-                             ["A0", "B0"])
-        assert got == pytest.approx(97.7)
+    def test_prag_je_tam_kjer_se_bremeni_izenacita(self):
+        # A0 pregleda za 10, obide za 4; B0 pregleda za 12, obide za 0.
+        point = plot.crossing(10.0, 4.0, 12.0, 0.0)
+        assert point == pytest.approx(1 / 3)
+        assert (1 - point) * 10 + point * 4 == pytest.approx((1 - point) * 12 + point * 0)
 
-    def test_manjse_je_boljse_da_veckratnik_nad_ena(self):
-        data = {("A0", "h2", "brez"): {"total_p50_ms": {"med": 40.0}},
-                ("B0", "h2", "brez"): {"total_p50_ms": {"med": 20.0}}}
-        got = plot.advantage(data, "total_p50_ms", "h2", "brez", False, "ratio",
-                             ["A0", "B0"])
-        assert got == pytest.approx(2.0)
+    def test_brez_prihranka_stikalo_dohiti_sele_pri_stotih_odstotkih(self):
+        # B0 obide enako drago kot A0, plača pa dodaten skok.
+        assert plot.crossing(10.0, 4.0, 12.0, 4.0) == pytest.approx(1.0)
 
-    def test_neveljavna_politika_je_izlocena(self):
-        data = {("A0", "h3", "sni_black"): {"goodput_mbps": {"med": 10.0},
-                                            "policy_ok_pct": {"med": 100.0}},
-                ("B0", "h3", "sni_black"): {"goodput_mbps": {"med": 20.0},
-                                            "policy_ok_pct": {"med": 49.0}}}
-        got = plot.advantage(data, "goodput_mbps", "h3", "sni_black", True, "ratio",
-                             ["A0", "B0"])
-        assert got is None
+    def test_ce_je_b0_ze_cenejsi_je_prag_pod_nic(self):
+        assert plot.crossing(12.0, 6.0, 10.0, 2.0) < 0
+
+    def test_manjkajoca_cena_ne_da_praga(self):
+        assert plot.crossing(10.0, None, 12.0, 0.0) is None
+
+    def test_enaka_prihranka_nimata_presecisca(self):
+        assert plot.crossing(10.0, 4.0, 12.0, 6.0) is None
+
+
+class TestZbiranje:
+
+    def test_osi_so_v_smiselnem_vrstnem_redu(self):
+        cells = {("B0", "h3", "sni_white"): {}, ("A0", "h2", "brez"): {},
+                 ("C0", "h2", "ip_black"): {}}
+        assert plot.axis(cells, 0) == ["C0", "A0", "B0"]
+        assert plot.axis(cells, 2) == ["brez", "ip_black", "sni_white"]
+
+    def test_hitrosti_in_delezi_se_prebereta_iz_imena(self):
+        cells = {("A0", "h2", "r128"): {}, ("A0", "h2", "r16"): {},
+                 ("A0", "h2", "potrjeno"): {}, ("A0", "h2", "p50"): {}}
+        assert plot.rates(cells) == [16, 128]
+        assert plot.shares(cells) == [50]

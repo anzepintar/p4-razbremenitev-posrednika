@@ -1,0 +1,251 @@
+# Skupna strojnica meritev. Program nastavi NAME in PURPOSE, nato sourca to datoteko.
+
+OUT=okolje/out
+SUDO="${SUDO-sudo}"
+TOPO_DIR=.
+CURRENT=""
+SETTLE="${SETTLE:-2}"
+BLOCK_FAILED=0
+RESULTS="$OUT/$NAME"
+
+ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl"
+WARMUP_ARTEFACTS="metrics_ogrevanje.jsonl summary_ogrevanje.json proxy_flows.jsonl"
+
+IFS='|' read -r PROTOCOLS MODES TIMEOUT DOMAINS <<<"$(python3 - <<'PY'
+import sys
+sys.path.insert(0, "okolje")
+import experiment as exp
+
+e = exp.load()
+print("|".join([
+    " ".join(f"{name}:{share}" for name, share in sorted(e.protocols.items())),
+    " ".join(m for m in e.modes),
+    f"{e.connect_timeout_s:g}",
+    str(e.total),
+]))
+PY
+)"
+
+WARMUP_REQUESTS="${WARMUP_REQUESTS:-$DOMAINS}"
+
+echo "== $NAME =="
+echo "$PURPOSE" | fold -s -w 78
+echo
+
+./orodja/reclaim.sh
+mkdir -p "$RESULTS"
+
+cleanup() {
+	if [ -n "$CURRENT" ]; then
+		$SUDO clab destroy -t "$TOPO_DIR/$CURRENT.clab.yml" --cleanup >/dev/null 2>&1 || true
+		CURRENT=""
+	fi
+}
+trap cleanup EXIT
+
+start_topo() {
+	local topo="$1"
+	CURRENT="$topo"
+	./orodja/start.sh "$topo" --lazy
+
+	if ! docker exec "clab-$topo-client" python3 -m runner --help >/dev/null 2>&1; then
+		echo "$NAME: runner v odjemalcu se ne zazene; zazeni ./orodja/build.sh" >&2
+		return 1
+	fi
+}
+
+probe_ok() {
+	local topo="$1" domain ip code
+	read -r domain ip _ <<<"$(awk '$3 == "unknown" { print; exit }' "$OUT/warmup.txt" 2>/dev/null)"
+	[ -n "${domain:-}" ] || return 0
+	code=$(docker exec "clab-$topo-client" curl -s -o /dev/null -w '%{http_code}' \
+		--max-time 5 --cacert /opt/traffic/pki/trust.pem \
+		--resolve "$domain:443:$ip" "https://$domain/index.html" 2>/dev/null || true)
+	[ "$code" = "200" ]
+}
+
+ensure_alive() {
+	local topo="$1"
+	probe_ok "$topo" && return 0
+
+	echo "    (podatkovna ravnina ne odgovarja, postavljam znova)" >&2
+	cleanup
+	if start_topo "$topo" && probe_ok "$topo"; then
+		return 0
+	fi
+	echo "$NAME: $topo ne odgovarja niti po ponovnem postavljanju; blok prekinjam" >&2
+	BLOCK_FAILED=1
+	return 1
+}
+
+collect_switch() {
+	local topo="$1" dest="$2" name="$3"
+	case "$topo" in
+	B0 | B1)
+		docker exec "clab-$topo-mitm" /opt/p4venv/bin/python /opt/traffic/proxy/steer.py \
+			--grpc-addr 10.20.1.2:9559 --stats /opt/traffic/out/switch_stats.json \
+			>>"$OUT/steer.log" 2>&1 || echo "    (stevcev stikala ni bilo mogoce prebrati)"
+		[ -f "$OUT/switch_stats.json" ] && mv -f "$OUT/switch_stats.json" "$dest/$name"
+		;;
+	esac
+}
+
+client_run() {
+	local topo="$1"
+	shift
+	clab exec -t "$TOPO_DIR/$topo.clab.yml" --label clab-node-name=client --cmd "$*"
+}
+
+# Nacin "brez" pomeni promet brez posegov, kar je skupina unknown; runner nacinov ne pozna.
+groups_for() {
+	case "$1" in
+	brez) echo unknown ;;
+	*) echo "$1" ;;
+	esac
+}
+
+warm_up() {
+	local topo="$1" share="$2" groups="$3"
+	client_run "$topo" "python3 -m runner --config /opt/traffic/experiment.yml \
+		--quic-share $share --groups $groups --requests $WARMUP_REQUESTS \
+		--workers 16 --label ogrevanje" >/dev/null 2>&1 || true
+	for file in $WARMUP_ARTEFACTS; do rm -f "$OUT/$file"; done
+}
+
+# cell <postavitev> <cilj> <quic-share> ; klicatelj nastavi CELL_*
+cell() {
+	local topo="$1" dest="$2" share="$3"
+	local groups="${CELL_GROUPS:-unknown}"
+	local workers="${CELL_WORKERS:-16}"
+	local duration="${CELL_DURATION:-$DURATION}"
+	local warmup="${CELL_WARMUP:-$WARMUP}"
+	local pace=""
+
+	[ -n "${CELL_RATE_RPS:-}" ] && pace="--rate-rps $CELL_RATE_RPS"
+
+	ensure_alive "$topo" || return 1
+
+	mkdir -p "$dest"
+	for file in $ARTEFACTS; do rm -f "$OUT/$file"; done
+	[ "${CELL_WARMUP_PASS:-1}" = 1 ] && warm_up "$topo" "$share" "$groups"
+
+	[ "${CELL_SWITCH:-1}" = 1 ] && collect_switch "$topo" "$dest" switch_before.json
+	./orodja/nodestats.py links "$topo" "$dest/links_before.json"
+	./orodja/nodestats.py cpu "$topo" "$dest/cpu_before.json"
+
+	client_run "$topo" "python3 -m runner --config /opt/traffic/experiment.yml \
+		--quic-share $share --groups $groups $pace --workers $workers \
+		--duration $duration" 2>&1 | sed 's/^/    /'
+
+	./orodja/nodestats.py cpu "$topo" "$dest/cpu_after.json"
+	./orodja/nodestats.py links "$topo" "$dest/links_after.json"
+	[ "${CELL_SWITCH:-1}" = 1 ] && collect_switch "$topo" "$dest" switch_after.json
+
+	for file in $ARTEFACTS; do
+		[ -f "$OUT/$file" ] && mv -f "$OUT/$file" "$dest/$file"
+	done
+
+	python3 - "$dest/meta.json" <<PY
+import json, sys
+json.dump({
+    "meritev": "$NAME", "postavitev": "$topo", "quic_share": float("$share"),
+    "groups": "$groups", "workers": int("$workers"),
+    "duration_s": float("$duration"), "warmup_s": float("$warmup"),
+    "rate_rps": ${CELL_RATE_RPS:-None},
+}, open(sys.argv[1], "w"), indent=2, ensure_ascii=False)
+PY
+
+	[ -s "$dest/metrics.jsonl" ] || { echo "$NAME: $dest brez meritev" >&2; return 1; }
+	sleep "$SETTLE"
+}
+
+finish() {
+	cleanup
+	./orodja/reclaim.sh
+	./orodja/plot.py "$RESULTS"
+}
+
+# --- iskanje najvecje vzdrzne hitrosti (RFC 2544: uokvirjanje, nato bisekcija) ---
+
+SEARCH_START="${SEARCH_START:-8}"
+SEARCH_MAX="${SEARCH_MAX:-512}"
+SEARCH_TOLERANCE="${SEARCH_TOLERANCE:-5}"
+TRIAL_DURATION="${TRIAL_DURATION:-12}"
+TRIAL_WARMUP="${TRIAL_WARMUP:-3}"
+CONFIRM_DURATION="${CONFIRM_DURATION:-30}"
+CONFIRM_WARMUP="${CONFIRM_WARMUP:-5}"
+
+workers_for() {
+	python3 -c "import math,sys; print(min(256, max(16, math.ceil(float(sys.argv[1]) * 0.25))))" "$1"
+}
+
+trial() {
+	local topo="$1" dest="$2" share="$3" rate="$4"
+	CELL_RATE_RPS="$rate" CELL_WORKERS="$(workers_for "$rate")" \
+		CELL_DURATION="$TRIAL_DURATION" CELL_WARMUP="$TRIAL_WARMUP" \
+		CELL_WARMUP_PASS=0 CELL_SWITCH=0 \
+		cell "$topo" "$dest/r$rate" "$share" >/dev/null 2>&1 || return 1
+	./orodja/verdict.py "$dest/r$rate"
+}
+
+# search_max <postavitev> <cilj> <quic-share>
+search_max() {
+	local topo="$1" dest="$2" share="$3"
+	local lo=0 hi=0 rate="$SEARCH_START" mid
+
+	mkdir -p "$dest"
+	warm_up "$topo" "$share" "${CELL_GROUPS:-unknown}"
+
+	while [ "$rate" -le "$SEARCH_MAX" ]; do
+		printf '    poskus %4s zahtev/s ... ' "$rate"
+		if trial "$topo" "$dest" "$share" "$rate"; then
+			lo="$rate"
+			rate=$((rate * 2))
+		else
+			hi="$rate"
+			break
+		fi
+	done
+
+	if [ "$lo" = 0 ]; then
+		echo "    $NAME: niti $SEARCH_START zahtev/s ni vzdrznih" >&2
+		return 1
+	fi
+	[ "$hi" = 0 ] && hi=$((lo * 2))
+
+	while [ $(((hi - lo) * 100 / hi)) -gt "$SEARCH_TOLERANCE" ]; do
+		mid=$(((lo + hi) / 2))
+		[ "$mid" -le "$lo" ] && break
+		printf '    bisekcija %4s zahtev/s ... ' "$mid"
+		if trial "$topo" "$dest" "$share" "$mid"; then
+			lo="$mid"
+		else
+			hi="$mid"
+		fi
+	done
+
+	echo "    najvecja vzdrzna hitrost: $lo zahtev/s (zgornja meja $hi)"
+	python3 - "$dest/max.json" "$lo" "$hi" "$SEARCH_TOLERANCE" <<'PY'
+import json, sys
+lo, hi = int(sys.argv[2]), int(sys.argv[3])
+json.dump({"max_rps": lo, "lo": lo, "hi": hi,
+           "tolerance_pct": int(sys.argv[4]),
+           "razmik_pct": round((hi - lo) / hi * 100, 1) if hi else None},
+          open(sys.argv[1], "w"), indent=2, ensure_ascii=False)
+PY
+
+	echo "    potrditev pri $lo zahtev/s, ${CONFIRM_DURATION}s"
+	CELL_RATE_RPS="$lo" CELL_WORKERS="$(workers_for "$lo")" \
+		CELL_DURATION="$CONFIRM_DURATION" CELL_WARMUP="$CONFIRM_WARMUP" \
+		cell "$topo" "$dest/potrjeno" "$share" || return 1
+}
+
+# max_rps <meritev> <postavitev> <protokol> -> hitrost ali prazno
+max_rps() {
+	python3 -c "
+import json, sys
+from pathlib import Path
+path = Path('$OUT/$1/$2/$3/max.json')
+print(json.loads(path.read_text())['max_rps'] if path.is_file() else '')
+"
+}

@@ -1,0 +1,34 @@
+name: C0
+
+topology:
+  nodes:
+    client:
+      kind: linux
+      image: client:latest
+      binds:
+        - okolje:/opt/traffic
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:01:0a
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace 10.0.2.0/24 dev eth1
+        - ip neigh replace 10.0.2.10 lladdr 00:00:00:00:02:0a dev eth1
+        - ip neigh replace 10.0.2.11 lladdr 00:00:00:00:02:0a dev eth1
+        - ip neigh replace 10.0.2.12 lladdr 00:00:00:00:02:0a dev eth1
+
+    server:
+      kind: linux
+      image: server:latest
+      binds:
+        - okolje:/opt/traffic
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:02:0a
+        - ip addr add 10.0.2.10/24 dev eth1
+        - ip addr add 10.0.2.11/24 dev eth1
+        - ip addr add 10.0.2.12/24 dev eth1
+        - ip link set dev eth1 up
+        - ip route replace 10.0.1.0/24 dev eth1
+        - ip neigh replace 10.0.1.10 lladdr 00:00:00:00:01:0a dev eth1
+
+  links:
+    - endpoints: ["client:eth1", "server:eth1"]
