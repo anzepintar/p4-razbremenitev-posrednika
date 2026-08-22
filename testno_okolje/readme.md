@@ -14,7 +14,8 @@ in meritve.
 | `C0` | odjemalec — strežnik | referenca: kaj zmore merilna oprema sama |
 | `A0` | odjemalec — posrednik — strežnik | meritev: ves promet prek posrednika |
 | `B0` | odjemalec — stikalo — posrednik — strežnik | meritev: stikalo razbremeni posrednika po naslovu in domeni |
-| `B1` | odjemalec — stikalo — posrednik — prehod → splet | ročno testiranje v brskalniku na resničnih straneh |
+| `B1` | odjemalec — stikalo — posrednik — prehod → splet | pregled pravega spleta in ročno testiranje v brskalniku |
+| `C1` | odjemalec — prehod → splet | izhodišče za `B1`: kaj deluje brez prestrezanja |
 
 Posrednik teče v transparentnem načinu (`--mode transparent@8080`): QUIC (UDP/443) prestreže
 prek TPROXY, TCP/443 pa prek `REDIRECT` in `SO_ORIGINAL_DST`. Prestrezanje QUIC-a doda fork
@@ -197,6 +198,19 @@ dodano v `bmv2.Dockerfile`. Slika ima zato novo oznako `bmv2-perf:1.15.5-modules
 `start.sh` se ustavi s pojasnilom. Program se ne prevaja več prek gonilnika `p4c`, ampak
 neposredno s `p4c-bm2-ss --emit-externs`, ker gonilnik te zastavice ne sprejme.
 
+Pot se izbere enkrat na tok in se hrani po četvorčku, dokler tok miruje manj kot
+`QUIC_TIMEOUT_MS`. Ker odjemalec efemerna vrata ponovno uporabi, bi nov tok lahko podedoval
+razsodbo prejšnjega — izmerjeno se je to pokazalo kot `quic_white` 680 v celici, kjer ni bila
+zahtevana nobena bela domena. Zato zunanja funkcija hrani **odtis prvih 40 bajtov
+`ClientHello`**: ta zajame odjemalčevo naključje, zato je ponovljen datagram (enak odtis)
+ločen od nove povezave na istem četvorčku (drugačen odtis), ki staro razsodbo zavrže.
+
+Odtis in ne ID povezave: odjemalčev **DCID** se sredi rokovanja legitimno zamenja, ker
+odjemalec prevzame strežnikov SCID, **SCID** odjemalca pa je pri curlu prazen. Odjemalčev
+`Initial` sredi rokovanja se s ključi iz svojega DCID sploh ne odpre, zato ponastavitve ne
+sproži. Meje pripenja `test_nova_povezava_na_istih_vratih_ne_podeduje_razsodbe` v
+`tests/integration/test_quic.py`.
+
 Česa stikalo v QUIC-u ne vidi: migracija povezave da nov četvorček in s tem nov tok, 0-RTT z
 imenom iz prejšnje seje nima `ClientHello`, ECH pa `server_name` skrije enako kot pri TCP.
 Zaporedje razsodbe in pripenjanja je varno, ker ima `simple_switch` eno samo vhodno nit in
@@ -205,7 +219,7 @@ razsodbo in pripenjanje združiti v en klic.
 
 ## Meritve
 
-Meritev je razbita na **šest samostojnih programov**. Vsak ustreza enemu razdelku poročila,
+Meritev je razbita na **sedem samostojnih programov**. Vsak ustreza enemu razdelku poročila,
 ima svoj namen, svoj izhod v `out/<ime>/` in traja okoli desetih minut. Poganjaš jih ločeno in
 ponoviš samo tistega, ki ga potrebuješ; vsak ob zagonu izpiše, kaj meri in zakaj.
 
@@ -219,6 +233,7 @@ Ponovitev je ena. Prečk napake zato ni — namesto njih povedo o uporabnosti to
 ./orodja/m4_referenca.sh     # zgornja meja brez vsega
 ./orodja/m5_vrste.sh         # vpliv po vrstah prometa
 ./orodja/m6_prag.sh          # pri katerem deležu se stikalo splača
+./orodja/m7_zmogljivost.sh   # največja vzdržna hitrost obhodnega prometa
 ./orodja/plot.py             # grafi in tabele iz vsega izmerjenega
 ```
 
@@ -232,6 +247,13 @@ vrste prometa — tako je izmerjena cena te vrste čista.
 **`m1_posrednik`** — kako se fork obnese pri HTTP/3 v primerjavi s HTTP/2. Postavitev `A0`,
 promet samo iz skupine `unknown`, torej brez politike, da se meri čisto prestrezanje. *Namen:*
 ugotoviti ceno, ki jo prinese prestrezanje QUIC-a v primerjavi z TLS/TCP.
+
+**`m7_zmogljivost`** — največja vzdržna hitrost po vrstah prometa. `m1`, `m3` in `m4` iščejo mejo
+samo na prometu `unknown`, torej na prometu, ki ga stikalo ne more razbremeniti, `m5` pa meri pri
+stalni obremenitvi pod nasičenjem, zato tam propustnost ne more biti različna. Ta program nasiči
+obhodni promet (`ip_white` in `sni_white`) v `A0` in `B0`. *Namen:* razbremenitev izraziti v
+zmogljivosti in ne le v porabi procesorja. Izhod gre v `out/m7_zmogljivost/<topo>_<vrsta>/<proto>/`,
+vrste pa nastaviš s `CELL_MODES`.
 
 ### Iskanje največje vzdržne hitrosti
 
@@ -291,8 +313,9 @@ QUIC je pri izluščanju imena torej **robustnejša** od poti TCP, kar je v nasp
 občutkom in je vredno omembe v poročilu.
 
 Zaradi tega je prag pričakovane pravilnosti v `plot.py` odvisen od mehanizma: 95 % za domenski
-seznam v HTTP/2 in 99 % povsod drugod. Šrafiran stolpec pomeni »pod pričakovanim«, ne
-»neveljavno« — vrednost je vseeno izmerjena in se poroča.
+seznam v HTTP/2 in 99 % povsod drugod. **Šrafiran stolpec** pomeni »pravilnost pod pragom«, ne
+»neveljavno« — vrednost je vseeno izmerjena in se poroča, na sliki pa ima šrafura svojo
+postavko v legendi in prag je naveden v podnapisu.
 
 **`m3_stikalo`** — isti promet in isto iskanje kot `m1`, le postavitev `B0`. Razlika proti
 `m1` je natanko cena stikala v poti: koliko pade zgornja meja, koliko se podaljša rokovanje in
@@ -308,16 +331,20 @@ odjemalcu; vse, kar dosežeta `A0` in `B0`, mora biti pod njo. Graf `m4_referenc
 **`m5_vrste`** — `A0` in `B0` pri stalni obremenitvi, ki jo vzameta kot 70 % manjšega od
 maksimumov iz `m1` in `m3`, da obe postavitvi merita pri isti obremenitvi in obe varno pod
 nasičenjem, za vsako od šestih vrst
-prometa posebej. Meri se propustnost, rokovanje in predvsem **breme posrednika: CPU deljen s
-številom poslanih zahtev, tudi tistih, ki posrednika sploh niso dosegle**. Prav ta delitelj je
+prometa posebej. Meri se **breme posrednika: CPU deljen s številom poslanih zahtev, tudi
+tistih, ki posrednika sploh niso dosegle**, ob tem pa še rokovanje. Propustnosti ta meritev ne
+riše: pri stalni obremenitvi pod nasičenjem obe postavitvi postrežeta vse ponujene zahteve,
+zato je prenesena količina lastnost obremenitve in ne postavitve. Zmogljivost meri `m7`. Prav ta delitelj je
 bistven — pove, koliko dela je posredniku prihranjeno na enoto ponujenega prometa, in ne le,
 kako hitro obdela to, kar vidi. *Namen:* pokazati, kje `B0` pridobi, kje izgubi in koliko
 bremena se dejansko premakne.
 
 **`m6_prag`** — pri katerem deležu obhodnega prometa se stikalo splača. Iz čistih cen v `m5`
 se izračuna presečišče, ta meritev pa ga potrdi z mešanicami 25, 50 in 75 odstotkov.
-*Namen:* odgovoriti na vprašanje vpeljave — koliko prometa mora biti obhodnega, da se dodaten
-skok povrne.
+*Namen:* odgovoriti na vprašanje vpeljave, torej koliko prometa mora biti obhodnega, da se
+dodaten skok povrne. Mehanizem mešanice nastaviš z `BYPASS` (privzeto `sni_white`); `plot.py`
+ga prebere iz `meta.json`, tako da se modelni premici vedno ujemata z izmerjenimi točkami.
+Za vidno presečišče pri HTTP/2 uporabi `BYPASS=ip_white`, ker `sni_white` tam obhoda ne zmore.
 
 ## Metrike
 
@@ -369,10 +396,24 @@ zapisana kot rezultat.
 
 ## Grafi in rezultati
 
-Vsak program zapiše v `out/<ime>/`: slike v `graf/` kot `.png`, tabelo celic v `results.md`,
-varovala v `veljavnost.md` in strojno berljiv `results.json`. Slike so široke 6,3 palca,
+Vsak program zapiše v `out/<ime>/`: slike v `graf/` kot `.pdf` in `.png`, tabelo celic v
+`results.md`, varovala v `veljavnost.md` in strojno berljiv `results.json`. Različica `.pdf` je
+vektorska, brez sivega napisa s pogoji in namenjena diplomi, `.png` pa ima napis in je za
+hitro branje. Postavitve se v legendah in tabelah imenujejo `A`, `B` in `C`, tako kot v diplomi. Slike so široke 6,3 palca,
 pisava 9 pt, barve privzete matplotlib; stolpčni grafi imajo ploščo na protokol, HTTP/2 nad
 HTTP/3.
+
+Dogovori, ki veljajo povsod:
+
+- **obe plošči na sliki imata isto os y**, da sta neposredno primerljivi; pri `m1` in `m3` to
+  pomeni, da krivulja HTTP/3 poteka nizko, ker je meja tam približno sedemkrat nižja; izjema je
+  `m6_prag`, kjer bi skupna os stisnila ploščo HTTP/2 in bi presečišče izginilo;
+- **številke so brez znanstvenega zapisa**, število decimalk se izbere po velikosti;
+- **šrafiran stolpec** pomeni pravilnost pod pragom mehanizma in ima svojo postavko v legendi;
+- **votel znak** na iskalnih grafih je padel poskus, **navpičnica** pa najdena največja
+  vzdržna hitrost;
+- **pod vsako sliko piše, pri kakšnih pogojih je nastala** — pri iskanju trajanje poskusa in
+  potrditve ter merilo, pri stalni obremenitvi pa hitrost, trajanje celice in ogrevanje.
 
 | slika | iz | kaj kaže |
 | :--- | :--- | :--- |
@@ -380,8 +421,136 @@ HTTP/3.
 | `m2_pravilnost` + `pravilnost.md` | m2 | delež pravilnih razsodb po vrstah prometa in števci stikala |
 | `m3_iskanje`, `m3_rokovanje`, `m3_cpu` | m3 | isto kot m1, a s stikalom; CPU je od stikala |
 | `m4_referenca`, `m4_rokovanje` + `maksimumi.md` | m4 | `C0`, `A0` in `B0` eden ob drugem in tabela vseh maksimumov |
-| `m5_propustnost`, `m5_rokovanje`, `m5_breme` | m5 | po vrstah prometa; `m5_breme` je CPU posrednika na poslano zahtevo |
+| `m5_rokovanje`, `m5_breme` | m5 | po vrstah prometa; `m5_breme` je CPU posrednika na poslano zahtevo |
 | `m6_prag` + `prag.md` | m6 | breme proti deležu obhoda, presečišče in izmerjene točke |
+| `m7_meja`, `m7_iskanje` + `maksimumi_vrste.md` | m7 | največja vzdržna hitrost po vrstah prometa, `A` proti `B` |
+
+## Pregled spleta
+
+Ali prestrezanje zdrži zunaj laboratorija. Nabor je sto najbolj obiskanih domen po
+Cloudflare Radarju (`testni_podatki/cloudflare-radar_top-100-domains_20260822.csv`), pregled pa
+vsako stran obišče s **curlom, chromiumom in firefoxom, vsakega po HTTP/2 in HTTP/3**.
+
+```sh
+./orodja/splet.sh                  # cel pregled, okoli pol ure do ure
+LIMIT=5 ./orodja/splet.sh          # samo prvih pet domen, za preizkus poteka
+CSV=<pot> ./orodja/splet.sh        # drug nabor
+```
+
+Program najprej postavi `C1` in izmeri **izhodišče brez prestrezanja**, nato isti nabor pelje
+skozi `B1`. Odstotek v poročilu je delež strani, ki delujejo v `B1`, med tistimi, ki delujejo že
+v izhodišču. Stran, ki ne dela niti brez prestrezanja, v imenovalec ne šteje, ker njena napaka
+ni napaka rešitve. Odjemalec je v obeh postavitvah ista slika z istim naslovom in istim
+razreševalnikom, zato sta stikalo in posrednik edina razlika med njima.
+
+Pred pregledom teče **korak nič**: `curl -L` za vsako domeno pove, kam apex pripelje. Vsi
+odjemalci nato obiščejo `https://<končni-gostitelj>/` in ne apex domene. Brez tega vsiljeni
+HTTP/3 po preusmeritvi na `www` ne bi veljal (glej [Brskalnik](#brskalnik)), domena, ki se ne
+razreši, pa tu izpade iz nabora.
+
+Kdaj stran »deluje« in od kod se ve, kateri protokol je res tekel:
+
+| odjemalec | deluje pomeni | protokol pove |
+| :--- | :--- | :--- |
+| `curl` | `exitcode` 0 in `http_version` je 2 oziroma 3 | `http_version` iz `%{json}` |
+| `chromium` | stran brez `main-frame-error` in brez vmesne strani potrdila | jamči zastavica `--disable-quic` oziroma `--origin-to-force-quic-on` |
+| `firefox` | navigacija uspe in končni naslov ni `about:neterror` | `performance.getEntriesByType("navigation")[0].nextHopProtocol` |
+
+**Koda HTTP ni merilo.** Apex domene nabora skoraj vedno vrnejo 301 ali 302, zato bi zahteva po
+200 večino strani lažno označila za pokvarjene. Za `curl` je merilo protokol, ki ga je zares
+dobil: `apple.com` na primer po `--http2` odgovori s HTTP/1.1 in to ni HTTP/2.
+
+Firefox je edini, ki uporabljeni protokol pove sam. Ker nima ustreznice za chromiumov
+`--dump-dom`, ga vodi **Marionette**, vgrajeni daljinski protokol (`firefox --marionette`);
+odjemalec zanj je `probe/marionette.py` in ne terja ne geckodriverja ne zunanje knjižnice. Prav
+zato firefox loči »stran se ni naložila« od »naložila se je, a po HTTP/2«.
+
+Vsak poskus se ob neuspehu **enkrat ponovi** (`RETRIES`). Izmerjeno se je pokazalo, da se prva
+zahteva na gostitelja včasih ustavi do izteka, naslednja pa steče v desetinki sekunde; brez
+ponovitve bi tak raztros pristal v tabeli kot stran, ki ne dela. Število poskusov je v vrstici,
+zato je raztros ločljiv od resnične okvare.
+
+Posrednik teče z `--no-content-block`, ker pravilo `~bs` prisili posrednika, da vsak odgovor v
+celoti shrani v pomnilnik, oznake `x-block-me-7f3a` pa na pravem spletu ni nikjer. Števci
+stikala se berejo **pred vsakim blokom in za njim** (blok je en odjemalec in en protokol), zato
+je iz `sni_seen` in `quic_sni` razvidno, pri kolikem deležu pravih sporočil `ClientHello` je
+stikalo ime res prebralo. Pri curlu je en poskus približno ena povezava, pri brskalniku pa jih
+je na stran več.
+
+Izhod je v `okolje/out/splet/`:
+
+| datoteka | vsebina |
+| :--- | :--- |
+| `results.md` | delovanje strani, pokritost nabora, razlogi in razsodbe stikala |
+| `nedelujoce.md` | **samo strani, ki delujejo v `C1` in ne delujejo v `B1`** |
+| `results.json` | isto strojno berljivo |
+| `cilji.json` | končni gostitelji iz koraka nič |
+| `<postavitev>/probes_<odjemalec>_<protokol>.jsonl` | ena vrstica na poskus |
+
+`nedelujoce.md` je namenjen ročni analizi: na vrstico so rang, domena, končni gostitelj,
+kategorija, koda napake, izdajatelj potrdila in podatek, ali je posrednik sejo sploh videl.
+Izdajatelj `mitmproxy` pomeni dešifrirano sejo, izdajatelj pravega overitelja pa obvod ali
+neprestreženo povezavo, zato se pripenjanje potrdila loči od okvare postavitve na prvi pogled.
+
+### Firefox in razdeljen `ClientHello`
+
+Pri prvem celotnem pregledu je firefox po HTTP/3 v `B1` uspel pri **nič** straneh, v `C1` pa
+pri 44. Vzrok ni bil v nastavitvah pregleda, ampak hiba v veji mitmproxy, ki je zdaj
+popravljena. Mehanizem je vreden zapisa, ker pokaže, kako tiho zna taka napaka odpovedati.
+
+Firefox pošlje `ClientHello` v **dveh datagramih po 1252 bajtov**, ker je zapis s hibridnim
+ključem prevelik za enega, in prvega **dopolni z 284 bajti ničelnega polnila za paketom**.
+Polnilo mora prejemnik prezreti (RFC 9000, 12.2). Curl istega zapisa ne polni, ker mu paket
+zapolni celoten datagram, zato sta curl in chromium delovala, firefox pa ne.
+
+Sprožilec je bil `--ignore-hosts`. Ta zastavica je edina, ki sproži pot
+`next_layer._get_client_hello()`, ta pa nabrane bajte preda razčlenjevalniku kot **en sam
+datagram**:
+
+```python
+ch = quic_parse_client_hello_from_datagrams([data_client])   # data_client je zlepljen
+```
+
+Aioquic je v zlepljenem bloku prebral prvi paket, naletel na ničelno polnilo, se ustavil in do
+drugega paketa nikoli ni prišel. `ClientHello` je ostal nepopoln, `_get_client_hello` je sprožil
+`NeedsMoreData`, odločitev o sloju se je odložila za vedno in seja je tiho obvisela. Posrednik
+je zapisal `client connect` in nič več, firefox pa je po tridesetih sekundah sejo zaprl
+(`Http3Session::Close` v `MOZ_LOG=nsHttp:4`) in stran naložil po TCP.
+
+Popravek je v `_client_hello_parser.py`. Pomožna funkcija `_move_padding_to_end` blok razreže
+po poljih `Length` iz dolgih glav QUIC in ničelno polnilo med paketi prestavi na konec
+datagrama. Paketi se s tem združijo in aioquic prebere oba, **dolžina datagrama pa ostane
+enaka**, ker mora datagram s paketom `Initial` meriti vsaj 1200 bajtov (RFC 9000, 14.1). Če
+bloka ni mogoče čisto razrezati, gre naprej nespremenjen, zato dosedanje obnašanje ostane
+enako. Pripeti so testi v `test__client_hello_parser.py`, med njimi razdeljeni `ClientHello`
+ločeno, zlepljen in zlepljen s polnilom.
+
+Ista pot obstaja tudi v izvorni različici mitmproxy, zato gre za hibo, ki je vredna prijave
+tudi tam; zapis o njej je v `CHANGELOG.md` veje.
+
+Po popravku firefox po HTTP/3 v `B1` deluje enako kot v `C1`. Ker je popravek v sliki
+`mitmproxy-quic:latest`, jo je treba po posodobitvi veje zgraditi znova:
+
+```sh
+docker rmi mitmproxy-quic:latest && ./orodja/build.sh
+```
+
+Diagnostični `NO_KYBER=1` je ostal na voljo. Firefoxu vzame hibridni ključ, tako da gre
+`ClientHello` v en datagram in polnila sploh ni; uporaben je, kadar je treba ločiti hibo v
+razčlenjevanju od hibe v prestrezanju. Privzet ni, ker mora pregled meriti odjemalca,
+kakršen v resnici je.
+
+```sh
+NO_KYBER=1 ./orodja/splet.sh        # diagnostika, ne meritev
+```
+
+V istem teku sta se v dnevniku posrednika pokazali še dve nesreči veje, obe pri prometu
+HTTP/3 in obe še nepopravljeni: `RuntimeError: lsqpack_enc_encode failed` in
+`ValueError: Cannot send data on unknown peer-initiated stream`.
+
+Ob koncu `B1` **ostane pokončen**, da je stran, ki ne deluje, mogoče takoj pogledati v
+brskalniku; `KEEP=0` ga poruši. Nastavljivo je še `SWEEP_CLIENTS`, `SWEEP_PROTOS`,
+`CONNECT_TIMEOUT`, `MAX_TIME` in `PAGE_TIMEOUT`.
 
 ## Testi
 
@@ -390,8 +559,8 @@ doda samodejno.
 
 | nivo | kaj preverja | kaj potrebuje | koliko |
 | :--- | :--- | :--- | :--- |
-| `unit` | seznami, kodiranje ključa, ukaz `curl`, pravilnik vsebine, razdelitev domen, uteži mešanice, razčlenitev meritve, izračun celice | samo Python | 144 |
-| `integration` | meje razčlenjevalnika SNI iz `steering.p4` na sestavljenih `ClientHello`, branje SNI iz pravih paketov `Initial`, ujemanje imen števcev | bere `steering.p4`, za QUIC še slika `p4-switch` | 26 |
+| `unit` | seznami, kodiranje ključa, ukaz `curl`, pravilnik vsebine, razdelitev domen, uteži mešanice, razčlenitev meritve, izračun celice, merilo »deluje« pri pregledu spleta | samo Python | 155 |
+| `integration` | meje razčlenjevalnika SNI iz `steering.p4` na sestavljenih `ClientHello`, branje SNI iz pravih paketov `Initial`, ujemanje imen števcev | bere `steering.p4`, za QUIC še slika `p4-switch` | 27 |
 | `e2e` | poti zahteve skozi tekočo postavitev (TCP in QUIC), števci stikala, `connection_strategy` | postavitev `B0` | 31 |
 
 ```sh
@@ -504,12 +673,37 @@ ničesar — ne strežnika X ne `xauth` — in enako dela prek SSH.
 Na namizju z desnim klikom dobiš meni z obema brskalnikoma; zaganja ju `diploma-chromium` in
 `diploma-firefox`, kar sta simbolni povezavi na `browser/chromium.sh` in `browser/firefox.sh`.
 Zastavice so torej v imeniku `okolje/browser` in jih spremeniš brez ponovne gradnje slike. Isti dve
-skripti požene tudi `browse.sh`, ki namizje po potrebi zažene sam.
+skripti požene tudi `browse.sh`, ki namizje po potrebi zažene sam, in pregled spleta iz
+razdelka [Pregled spleta](#pregled-spleta). Skripti se nastavljata prek okolja:
+
+| spremenljivka | chromium | firefox |
+| :--- | :--- | :--- |
+| `FORCE_QUIC` | `--origin-to-force-quic-on`, sprejme tudi `all` | `alt-svc-mapping-for-testing`, sprejme **seznam gostiteljev, ločenih z vejico** |
+| `NO_QUIC=1` | `--disable-quic` | `network.http.http3.enable=false` |
+| `USER_DATA_DIR` / `PROFILE_DIR` | svoj profil | svoj profil |
+| `MARIONETTE_PORT` | — | vrata za daljinski protokol |
+
+**Vsiljeni HTTP/3 velja za točno ime gostitelja.** Ko se `microsoft.com` preusmeri na
+`www.microsoft.com`, preslikava za apex ne velja več in seja tiho pade na HTTP/2; izmerjeno se
+to pokaže kot `nextHopProtocol` `h2` pri zahtevanem `h3`. Zato pregled spleta najprej ugotovi
+končnega gostitelja in šele njega vpiše v preslikavo.
+
+Pravilnika iz `browser/policies/` namestita skripti sami ob vsakem zagonu, zato tudi ta ne
+terjata ponovne gradnje slike. Zapis gre prek začasne datoteke in preimenovanja, ker pregled
+zažene več brskalnikov hkrati.
 
 ```sh
 ./orodja/start.sh B1
 ./orodja/browse.sh B1 chromium https://www.cloudflare.com/
 ./orodja/browse.sh B1 firefox
+```
+
+Isto stran pogledaš brez prestrezanja v `C1`, kar je najhitrejši način, da ločiš napako
+postavitve od strani, ki ne dela sama po sebi:
+
+```sh
+./orodja/start.sh C1
+./orodja/browse.sh C1 chromium https://www.cloudflare.com/
 ```
 
 Brskalnik h3 sam po sebi uporabi šele, ko se glave `alt-svc` nauči in je ne označi za
@@ -540,6 +734,10 @@ CA posrednika je nov ob vsakem `clab deploy`, zato ga `start.sh` in vsak `browse
 zapišeta v odjemalca (`browser/trust_nss.sh`): v sistemsko zbirko za `curl` in v NSS zbirko za
 chromium. Firefox ga dobi iz pravilnika `Certificates.Install`, ki kaže na
 `/opt/traffic/pki/trust.pem` in se bere ob vsakem zagonu.
+
+`network.http.http3.enable` je v pravilniku nastavljen na `true`, a **ni zaklenjen**. Zaklenjena
+nastavitev prepiše `user.js`, zato pregled HTTP/3 ne bi mogel izklopiti in bi celica HTTP/2 tiho
+tekla po HTTP/3 povsod, kjer stran ponuja `h3`. Ostale nastavitve ostanejo zaklenjene.
 
 **DoH in ECH sta zaklenjena izklopljena** (`browser/policies/`). DNS mora ostati v čistopisu,
 ker ga stikalo prepušča po `PORT_DNS`, ECH pa bi skril `server_name` in `sni_policy` bi ostal

@@ -128,6 +128,17 @@ class TestRazclenitev:
         assert [row.split()[0] for row in rows] == ["fresh", "cached"]
         assert {row.split()[1] for row in rows} == {vectors["aioquic"]["sni"]}
 
+    def test_nova_povezava_na_istih_vratih_ne_podeduje_razsodbe(self, selftest, vectors):
+        first = vectors["aioquic"]
+        second = vectors["aioquic_long"]
+        _, rows = selftest([f"1 {first['datagrams'][0]}", f"1 {second['datagrams'][0]}"])
+        assert rows[0].split()[1] == first["sni"]
+        assert rows[1].split()[1] == second["sni"], (
+            "odjemalec efemerna vrata ponovno uporabi; nov ClientHello na istem cetvorcku "
+            "mora zavreci staro razsodbo, sicer tok podeduje pot prejsnjega"
+        )
+        assert rows[1].split()[0] == "fresh"
+
     def test_locena_toka_se_ne_mesata(self, selftest, vectors):
         first = vectors["aioquic"]["datagrams"][0]
         second = vectors["razdeljen"]["datagrams"][0]

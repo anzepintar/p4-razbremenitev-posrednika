@@ -3,13 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-TOPO="${1:?uporaba: browse.sh B1 [chromium|firefox] [url]}"
+TOPO="${1:?uporaba: browse.sh B1|C1 [chromium|firefox] [url]}"
 BROWSER="${2:-chromium}"
 URL="${3:-${PROBE_URL:-https://quic.anzepintar.com/}}"
 
 case "$TOPO" in
-B1) ;;
-*) echo "browse.sh: brskalnik je le v B1, ne v '$TOPO'" >&2; exit 2 ;;
+B1 | C1) ;;
+*) echo "browse.sh: brskalnik je le v B1 in C1, ne v '$TOPO'" >&2; exit 2 ;;
 esac
 
 NODE="clab-$TOPO-client"
@@ -35,7 +35,8 @@ if ! docker exec "$NODE" ss -lnt 2>/dev/null | grep -q ":$WEB_PORT"; then
 	}
 fi
 
-docker exec "$NODE" /opt/traffic/browser/trust_nss.sh >/dev/null
+# V C1 ni posrednika in zato ni svojega CA; velja sistemska zbirka.
+[ "$TOPO" = C1 ] || docker exec "$NODE" /opt/traffic/browser/trust_nss.sh >/dev/null
 
 QUIC=""
 case "${FORCE_QUIC:-}" in

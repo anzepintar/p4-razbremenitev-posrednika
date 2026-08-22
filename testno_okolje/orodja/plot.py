@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -10,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 HERE = Path(__file__).resolve().parent
 OKOLJE = HERE.parent / "okolje"
@@ -30,7 +32,8 @@ MODE_LABELS = {
     "content_block": "vsebinski\nčrni",
 }
 PROTO_LABELS = {"h2": "HTTP/2", "h3": "HTTP/3"}
-TOPO_LABELS = {"C0": "C0 referenca", "A0": "A0 posrednik", "B0": "B0 stikalo + posrednik"}
+TOPO_NAMES = {"C0": "C", "A0": "A", "B0": "B"}
+TOPO_LABELS = {"C0": "C referenca", "A0": "A posrednik", "B0": "B stikalo + posrednik"}
 
 LINK_KEYS = ("rx_packets", "tx_packets", "rx_bytes", "tx_bytes")
 SWITCH_KEYS = ("sni_seen", "sni_blocked", "sni_white", "quic",
@@ -48,7 +51,25 @@ PAGE_WIDTH = 6.3
 plt.rcParams.update({
     "font.size": 9, "axes.titlesize": 9, "axes.labelsize": 9,
     "legend.fontsize": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
+    "pdf.fonttype": 42,
 })
+
+
+def flat(text: str) -> str:
+    return text.replace("\n", " ")
+
+
+def topo_label(topo: str) -> str:
+    if topo in TOPO_NAMES:
+        return TOPO_NAMES[topo]
+    base, _, mode = topo.partition("_")
+    if base in TOPO_NAMES and mode:
+        return f"{TOPO_NAMES[base]}, {flat(MODE_LABELS.get(mode, mode))}"
+    return topo
+
+
+def series_label(topo: str) -> str:
+    return TOPO_LABELS.get(topo) or topo_label(topo)
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -72,19 +93,56 @@ def grid(ax, axis: str = "y") -> None:
     ax.set_axisbelow(True)
 
 
-def legend(fig, ax, columns: int, offset: float = -0.04) -> None:
-    handles, labels = ax.get_legend_handles_labels()
+def below(fig, inches: float) -> float:
+    """Odmik pod sliko v stalni fizicni razdalji, ne glede na visino slike."""
+    return -inches / fig.get_figheight()
+
+
+def legend(fig, handles, labels, columns: int) -> None:
     if handles:
         fig.legend(handles, labels, ncols=columns, loc="lower center",
-                   bbox_to_anchor=(0.5, offset))
+                   bbox_to_anchor=(0.5, below(fig, 0.30)))
 
 
-def save(fig, stem: str, out: Path) -> None:
+def save(fig, stem: str, out: Path, caption: str = "") -> None:
     out.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
+    fig.savefig(out / f"{stem}.pdf", bbox_inches="tight")
+    if caption:
+        fig.text(0.5, below(fig, 0.62), textwrap.fill(caption, 108),
+                 ha="center", va="top", fontsize=7, color="0.35")
     fig.savefig(out / f"{stem}.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  {out / stem}.png")
+    print(f"  {out / stem}.pdf, {stem}.png")
+
+
+def number(value: float) -> str:
+    """Zapis brez eksponenta; decimalke po velikosti."""
+    size = abs(value)
+    if size >= 100:
+        return f"{value:,.0f}".replace(",", " ")
+    if size >= 10:
+        return f"{value:.1f}"
+    if size >= 1:
+        return f"{value:.2f}"
+    if size > 0:
+        return f"{value:.3f}"
+    return "0"
+
+
+def plain_axis(ax) -> None:
+    ax.ticklabel_format(style="plain", axis="y", useOffset=False)
+
+
+def share_scale(axes) -> None:
+    """Obe plosci na sliki dobita isto os y, da sta neposredno primerljivi."""
+    flat = [ax for row in axes for ax in row if ax.has_data()]
+    if len(flat) < 2:
+        return
+    low = min(ax.get_ylim()[0] for ax in flat)
+    high = max(ax.get_ylim()[1] for ax in flat)
+    for ax in flat:
+        ax.set_ylim(low, high)
 
 
 def ms(value: float | None) -> float | None:
@@ -166,6 +224,9 @@ def load_cell(directory: Path) -> dict | None:
         "proxy_sessions": len(read_jsonl(directory / "proxy_flows.jsonl")),
         "errors_pct": round(errors / len(allowed) * 100, 2) if allowed else None,
         "duration_s": seconds,
+        "window_s": window,
+        "warmup_s": warmup,
+        "rate_rps": meta.get("rate_rps"),
         "workers": meta.get("workers"),
         "groups": meta.get("groups"),
         "switch": counter_delta(read_json(directory / "switch_before.json"),
@@ -222,6 +283,26 @@ def shares(cells: dict) -> list[int]:
                    if name.startswith("p") and name[1:].isdigit()})
 
 
+def whole(value: float) -> str:
+    return number(value).rstrip("0").rstrip(".") if value % 1 == 0 else number(value)
+
+
+def conditions(cells: dict, extra: str = "") -> str:
+    rates = sorted({c["rate_rps"] for c in cells.values() if c.get("rate_rps")})
+    times = sorted({c["window_s"] for c in cells.values() if c.get("window_s")})
+    warm = sorted({c["warmup_s"] for c in cells.values() if c.get("warmup_s") is not None})
+    parts = []
+    if rates:
+        parts.append(" in ".join(f"{whole(r)} zahtev/s" for r in rates))
+    if times:
+        parts.append(" in ".join(f"{whole(s)} s na celico" for s in times))
+    if warm:
+        parts.append(f"ogrevanje {whole(warm[0])} s")
+    if extra:
+        parts.append(extra)
+    return ("pogoji: " + ", ".join(parts)) if parts else ""
+
+
 def below_floor(cell: dict | None, proto: str = "", mode: str = "") -> bool:
     ok = (cell or {}).get("policy_ok_pct")
     floor = OK_FLOOR.get((proto, mode), OK_FLOOR_DEFAULT)
@@ -229,11 +310,11 @@ def below_floor(cell: dict | None, proto: str = "", mode: str = "") -> bool:
 
 
 def bars_chart(cells: dict, stem: str, rows: list[tuple[str, str]], out: Path,
-               names: list[str], label_of=None) -> None:
-    label_of = label_of or (lambda n: MODE_LABELS.get(n, n))
+               names: list[str], caption: str = "") -> None:
     topos, protocols = axis(cells, 0), axis(cells, 1)
     panels = [(key, ylabel, proto) for key, ylabel in rows for proto in protocols]
     fig, axes = figure(len(panels), 1, height=2.4)
+    hatched_any = False
     for index, (key, ylabel, proto) in enumerate(panels):
         ax = axes[index][0]
         grid(ax)
@@ -245,21 +326,29 @@ def bars_chart(cells: dict, stem: str, rows: list[tuple[str, str]], out: Path,
                 cell = cells.get((topo, proto, name))
                 value = (cell or {}).get(key)
                 heights.append(float("nan") if value is None else value)
-                labels.append("" if value is None else f"{value:.3g}")
+                labels.append("" if value is None else number(value))
                 hatches.append(below_floor(cell, proto, name))
             drawn = ax.bar([i + offset for i in range(len(names))], heights, width * 0.9,
-                           label=TOPO_LABELS.get(topo, topo))
+                           label=series_label(topo))
             for rect, hatched in zip(drawn, hatches):
                 if hatched:
                     rect.set_hatch("//")
+                    hatched_any = True
             ax.bar_label(drawn, labels=labels, padding=2, fontsize=6.5)
         ax.set_xticks(range(len(names)))
-        ax.set_xticklabels([label_of(n) for n in names])
+        ax.set_xticklabels([MODE_LABELS.get(n, n) for n in names])
         ax.set_ylabel(ylabel, fontsize=8)
         ax.set_title(PROTO_LABELS.get(proto, proto), loc="left", pad=10)
         ax.margins(y=0.26)
-    legend(fig, axes[0][0], len(topos))
-    save(fig, stem, out)
+        plain_axis(ax)
+    share_scale(axes)
+
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    if hatched_any:
+        handles.append(Patch(facecolor="white", edgecolor="0.3", hatch="//"))
+        labels.append("pravilnost pod pragom")
+    legend(fig, handles, labels, len(labels))
+    save(fig, stem, out, caption)
 
 
 def table(header: list[str], rows: list[list[str]]) -> str:
@@ -271,7 +360,7 @@ def table(header: list[str], rows: list[list[str]]) -> str:
 
 def show(cell: dict, key: str) -> str:
     value = cell.get(key)
-    return "-" if value is None else f"{value:g}"
+    return "-" if value is None else number(value)
 
 
 REPORT_KEYS = (
@@ -289,7 +378,7 @@ REPORT_KEYS = (
 
 def results_table(cells: dict) -> str:
     header = ["postavitev", "protokol", "celica"] + [label for _, label in REPORT_KEYS]
-    rows = [[topo, PROTO_LABELS.get(proto, proto), name]
+    rows = [[topo_label(topo), PROTO_LABELS.get(proto, proto), name]
             + [show(cell, key) for key, _ in REPORT_KEYS]
             for (topo, proto, name), cell in cells.items()]
     return table(header, rows)
@@ -299,21 +388,22 @@ def validity_table(cells: dict) -> str:
     header = ["postavitev", "protokol", "celica", "napake (%)", "poslanih zahtev",
               "izraba odjemalca", "izraba posrednika", "izraba stikala"]
     keys = ["errors_pct", "requests", "cpu_util_client", "cpu_util_mitm", "cpu_util_switch"]
-    rows = [[topo, PROTO_LABELS.get(proto, proto), name]
+    rows = [[topo_label(topo), PROTO_LABELS.get(proto, proto), name]
             + [show(cell, key) for key in keys]
             for (topo, proto, name), cell in cells.items()]
     return table(header, rows)
 
 
-def search_chart(cells: dict, roots: dict, stem: str, key: str, ylabel: str,
-                 out: Path, diagonal: bool = False, logy: bool = False) -> None:
+def search_chart(cells: dict, roots: dict, stem: str, rows: list[tuple[str, str]],
+                 out: Path, diagonal: bool = False, caption: str = "") -> None:
     x = rates(cells)
     topos, protocols = axis(cells, 0), axis(cells, 1)
     if not x:
         return
-    fig, axes = figure(1, len(protocols), height=2.9)
-    for column, proto in enumerate(protocols):
-        ax = axes[0][column]
+    panels = [(key, ylabel, proto) for key, ylabel in rows for proto in protocols]
+    fig, axes = figure(len(rows), len(protocols), height=2.9)
+    for index, (key, ylabel, proto) in enumerate(panels):
+        ax = axes[index // len(protocols)][index % len(protocols)]
         grid(ax, axis="both")
         seen = sorted({n for n in x if any((topo, proto, f"r{n}") in cells
                                            for topo in topos)})
@@ -325,7 +415,7 @@ def search_chart(cells: dict, roots: dict, stem: str, key: str, ylabel: str,
             if not trials:
                 continue
             line = ax.plot([n for n, _ in trials], [c.get(key) for _, c in trials],
-                           marker="o", label=TOPO_LABELS.get(topo, topo))
+                           marker="o", label=series_label(topo))
             colour = line[0].get_color()
             for n, c in trials:
                 if c.get("ok") is False and c.get(key) is not None:
@@ -335,35 +425,42 @@ def search_chart(cells: dict, roots: dict, stem: str, key: str, ylabel: str,
             if found:
                 ax.axvline(found, linestyle="--", linewidth=1, color=colour)
         ax.set_xscale("log", base=2)
-        if logy:
-            ax.set_yscale("log")
-        elif seen:
-            top = max((c.get(key) or 0) for (t_, p_, _), c in cells.items()
-                      if p_ == proto) or 1
-            ax.set_ylim(0, top * 1.15)
         marks = [2 ** e for e in range(3, 11)
                  if seen and seen[0] <= 2 ** e <= seen[-1]] or seen
         ax.set_xticks(marks)
         ax.set_xticklabels(marks)
         ax.set_xlabel("ponujenih zahtev/s")
         ax.set_title(PROTO_LABELS.get(proto, proto), loc="left")
-        if column == 0:
+        if index % len(protocols) == 0:
             ax.set_ylabel(ylabel)
-    legend(fig, axes[0][0], len(topos) + (1 if diagonal else 0), -0.14)
-    save(fig, stem, out)
+        plain_axis(ax)
+    share_scale(axes)
+    legend(fig, *axes[0][0].get_legend_handles_labels(),
+           len(topos) + (1 if diagonal else 0))
+    save(fig, stem, out, caption)
+
+
+SEARCH_CAPTION = ("pogoji: poskus 12 s, potrditev 30 s; vzdržno pomeni brez napak in vsaj "
+                  "98 % ciljne hitrosti (RFC 2544). Votel znak je padel poskus, "
+                  "navpičnica najdena največja vzdržna hitrost.")
 
 
 def render_search(cells: dict, out: Path, name: str) -> None:
     stem = name.split("_")[0]
     roots = {t: out.parent for t in axis(cells, 0)}
-    search_chart(cells, roots, f"{stem}_iskanje", "requests_s",
-                 "doseženih zahtev/s", out, diagonal=True)
-    search_chart(cells, roots, f"{stem}_rokovanje", "handshake_p95_ms",
-                 "rokovanje p95 (ms)", out, logy=True)
+    search_chart(cells, roots, f"{stem}_iskanje",
+                 [("requests_s", "doseženih zahtev/s")], out,
+                 diagonal=True, caption=SEARCH_CAPTION)
+    search_chart(cells, roots, f"{stem}_rokovanje",
+                 [("handshake_p50_ms", "rokovanje p50 (ms)"),
+                  ("handshake_p95_ms", "rokovanje p95 (ms)")], out,
+                 caption=SEARCH_CAPTION)
     node = "switch" if name == "m3_stikalo" else "mitm"
     if any(c.get(f"cpu_ms_per_request_{node}") is not None for c in cells.values()):
-        search_chart(cells, roots, f"{stem}_cpu", f"cpu_ms_per_request_{node}",
-                     f"CPU {NODE_LABELS[node]} (ms/zahtevo)", out)
+        search_chart(cells, roots, f"{stem}_cpu",
+                     [(f"cpu_ms_per_request_{node}",
+                       f"CPU {NODE_LABELS[node]} (ms/zahtevo)")], out,
+                     caption=SEARCH_CAPTION)
 
 
 def render_referenca(cells: dict, out: Path, name: str) -> None:
@@ -372,10 +469,13 @@ def render_referenca(cells: dict, out: Path, name: str) -> None:
         root = out.parent.parent / other
         merged.update(collect(root))
         roots[topo] = root
-    search_chart(merged, roots, "m4_referenca", "requests_s",
-                 "doseženih zahtev/s", out, diagonal=True)
-    search_chart(merged, roots, "m4_rokovanje", "handshake_p95_ms",
-                 "rokovanje p95 (ms)", out, logy=True)
+    search_chart(merged, roots, "m4_referenca",
+                 [("requests_s", "doseženih zahtev/s")], out,
+                 diagonal=True, caption=SEARCH_CAPTION)
+    search_chart(merged, roots, "m4_rokovanje",
+                 [("handshake_p50_ms", "rokovanje p50 (ms)"),
+                  ("handshake_p95_ms", "rokovanje p95 (ms)")], out,
+                 caption=SEARCH_CAPTION)
 
     header = ["postavitev", "protokol", "največja vzdržna hitrost (zahtev/s)",
               "propustnost pri njej (Mb/s)", "rokovanje p50 (ms)"]
@@ -386,7 +486,7 @@ def render_referenca(cells: dict, out: Path, name: str) -> None:
             confirmed = merged.get((topo, proto, "potrjeno")) or {}
             if found is None and not confirmed:
                 continue
-            rows.append([topo, PROTO_LABELS.get(proto, proto),
+            rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
                          "-" if found is None else str(found),
                          show(confirmed, "goodput_mbps"),
                          show(confirmed, "handshake_p50_ms")])
@@ -396,15 +496,16 @@ def render_referenca(cells: dict, out: Path, name: str) -> None:
 
 def render_pravilnost(cells: dict, out: Path, name: str) -> None:
     names = axis(cells, 2)
+    caption = conditions(cells, "prag: 95 % za domenski seznam v HTTP/2, sicer 99 %")
     bars_chart(cells, "m2_pravilnost",
-               [("policy_ok_pct", "pravilnost (%)")], out, names)
+               [("policy_ok_pct", "pravilnost (%)")], out, names, caption)
 
     header = ["postavitev", "protokol", "vrsta prometa", "pravilnost (%)",
               "poslanih zahtev", "sej pri posredniku", "števci stikala"]
     rows = []
     for (topo, proto, mode), cell in cells.items():
         counters = {k: v for k, v in (cell.get("switch") or {}).items() if v}
-        rows.append([topo, PROTO_LABELS.get(proto, proto), MODE_LABELS.get(mode, mode).replace("\n", " "),
+        rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto), flat(MODE_LABELS.get(mode, mode)),
                      show(cell, "policy_ok_pct"), show(cell, "requests"),
                      show(cell, "proxy_sessions"),
                      ", ".join(f"{k} {v}" for k, v in counters.items()) or "-"])
@@ -414,11 +515,14 @@ def render_pravilnost(cells: dict, out: Path, name: str) -> None:
 
 def render_vrste(cells: dict, out: Path, name: str) -> None:
     names = axis(cells, 2)
-    bars_chart(cells, "m5_propustnost", [("goodput_mbps", "propustnost (Mb/s)")], out, names)
-    bars_chart(cells, "m5_rokovanje", [("handshake_p50_ms", "rokovanje p50 (ms)")], out, names)
+    caption = conditions(cells, "stalna obremenitev, 70 % manjšega od maksimumov iz m1 in m3; "
+                                "ni rampe, ker se ne išče meje, ampak cena pri eni obremenitvi")
+    bars_chart(cells, "m5_rokovanje", [("handshake_p50_ms", "rokovanje p50 (ms)"),
+                                       ("handshake_p95_ms", "rokovanje p95 (ms)")],
+               out, names, caption)
     bars_chart(cells, "m5_breme",
                [("cpu_ms_per_request_mitm", "CPU posrednika (ms/zahtevo)")],
-               out, names)
+               out, names, caption)
 
 
 def crossing(a_insp, a_pass, b_insp, b_pass) -> float | None:
@@ -431,6 +535,15 @@ def crossing(a_insp, a_pass, b_insp, b_pass) -> float | None:
     return (a_insp - b_insp) / denominator
 
 
+def bypass_group(cells: dict) -> str:
+    for cell in cells.values():
+        for part in (cell.get("groups") or "").split(","):
+            group = part.split(":")[0].strip()
+            if group and group != "unknown":
+                return group
+    return "sni_white"
+
+
 def render_prag(cells: dict, out: Path, name: str) -> None:
     pure = collect(out.parent.parent / "m5_vrste")
     if not pure:
@@ -438,6 +551,7 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
         return
 
     key = "cpu_ms_per_request_mitm"
+    mixed = bypass_group(cells)
     protocols = axis(pure, 1)
     mechanisms = [m for m in ("ip_white", "ip_black", "sni_white", "sni_black")
                   if any(k[2] == m for k in pure)]
@@ -455,7 +569,7 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
             b_pass = (pure.get(("B0", proto, mechanism)) or {}).get(key)
             point = crossing(a_insp, a_pass, b_insp, b_pass)
             rows.append([PROTO_LABELS.get(proto, proto),
-                         MODE_LABELS.get(mechanism, mechanism).replace("\n", " "),
+                         flat(MODE_LABELS.get(mechanism, mechanism)),
                          *(f"{v:g}" if v is not None else "-"
                            for v in (a_insp, a_pass, b_insp, b_pass)),
                          "-" if point is None else f"{point * 100:.1f} %"
@@ -464,19 +578,19 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
 
         span = [i / 20 for i in range(21)]
         for topo, insp in (("A0", a_insp), ("B0", b_insp)):
-            bypass = (pure.get((topo, proto, "sni_white")) or {}).get(key)
+            bypass = (pure.get((topo, proto, mixed)) or {}).get(key)
             if insp is None or bypass is None:
                 continue
             drawn = ax.plot(span, [(1 - p) * insp + p * bypass for p in span],
-                            label=f"{topo} model")
+                            label=f"{topo_label(topo)} model")
             xs = [p / 100 for p in shares(cells)]
             ys = [(cells.get((topo, proto, f"p{p}")) or {}).get(key) for p in shares(cells)]
             if any(y is not None for y in ys):
                 ax.plot(xs, ys, linestyle="none", marker="o",
-                        color=drawn[0].get_color(), label=f"{topo} izmerjeno")
+                        color=drawn[0].get_color(), label=f"{topo_label(topo)} izmerjeno")
 
-        point = crossing(a_insp, (pure.get(("A0", proto, "sni_white")) or {}).get(key),
-                         b_insp, (pure.get(("B0", proto, "sni_white")) or {}).get(key))
+        point = crossing(a_insp, (pure.get(("A0", proto, mixed)) or {}).get(key),
+                         b_insp, (pure.get(("B0", proto, mixed)) or {}).get(key))
         if point is not None and 0 <= point <= 1:
             ax.axvline(point, linestyle=":", color="0.4")
             ax.annotate(f"prag {point * 100:.0f} %", (point, ax.get_ylim()[1]),
@@ -485,13 +599,71 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
         ax.set_title(PROTO_LABELS.get(proto, proto), loc="left")
         if column == 0:
             ax.set_ylabel("CPU posrednika (ms/zahtevo)")
-    legend(fig, axes[0][0], 4, -0.14)
-    save(fig, "m6_prag", out)
+        plain_axis(ax)
+    legend(fig, *axes[0][0].get_legend_handles_labels(), 4)
+    save(fig, "m6_prag", out,
+         conditions(cells, f"premici sta model iz čistih cen v m5 za {flat(MODE_LABELS.get(mixed, mixed))}, "
+                           "točke pa izmerjene mešanice; ni rampe, ker se meri cena pri eni obremenitvi"))
 
-    header = ["protokol", "mehanizem", "A0 pregled", "A0 obhod", "B0 pregled", "B0 obhod",
+    header = ["protokol", "mehanizem", "A pregled", "A obhod", "B pregled", "B obhod",
               "prag"]
     (out.parent / "prag.md").write_text(table(header, rows), encoding="utf-8")
     print(f"  {out.parent / 'prag.md'}")
+
+
+LIMIT_CAPTION = ("pogoji: iskanje po RFC 2544, poskus 12 s, potrditev 30 s; tok je v celoti "
+                 "ene vrste prometa. Stolpec brez posegov je iz m1 in m3.")
+
+
+def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
+    root = out.parent
+    roots = {t: root for t in axis(cells, 0)}
+    search_chart(cells, roots, "m7_iskanje",
+                 [("requests_s", "doseženih zahtev/s")], out,
+                 diagonal=True, caption=SEARCH_CAPTION)
+
+    protocols = axis(cells, 1)
+    seen = {t.partition("_")[2] for t in axis(cells, 0) if "_" in t}
+    names = ["brez"] + [m for m in MODE_LABELS if m in seen]
+    base = {"A0": root.parent / "m1_posrednik", "B0": root.parent / "m3_stikalo"}
+
+    limits, pool = {}, dict(cells)
+    for source in base.values():
+        pool.update(collect(source))
+    for topo in ("A0", "B0"):
+        for proto in protocols:
+            for mode in names:
+                where = base[topo] if mode == "brez" else root
+                key = topo if mode == "brez" else f"{topo}_{mode}"
+                found = max_rps(where, key, proto)
+                if found:
+                    limits[(topo, proto, mode)] = {"max_rps": found}
+    if not limits:
+        return
+
+    bars_chart(limits, "m7_meja",
+               [("max_rps", "največja vzdržna hitrost (zahtev/s)")],
+               out, names, LIMIT_CAPTION)
+
+    header = ["postavitev", "protokol", "vrsta prometa",
+              "največja vzdržna hitrost (zahtev/s)", "propustnost pri njej (Mb/s)",
+              "CPU posrednika (ms/zahtevo)", "CPU stikala (ms/zahtevo)"]
+    rows = []
+    for topo in ("A0", "B0"):
+        for proto in protocols:
+            for mode in names:
+                found = (limits.get((topo, proto, mode)) or {}).get("max_rps")
+                if found is None:
+                    continue
+                key = topo if mode == "brez" else f"{topo}_{mode}"
+                confirmed = pool.get((key, proto, "potrjeno")) or {}
+                rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
+                             flat(MODE_LABELS.get(mode, mode)), str(found),
+                             show(confirmed, "goodput_mbps"),
+                             show(confirmed, "cpu_ms_per_request_mitm"),
+                             show(confirmed, "cpu_ms_per_request_switch")])
+    (root / "maksimumi_vrste.md").write_text(table(header, rows), encoding="utf-8")
+    print(f"  {root / 'maksimumi_vrste.md'}")
 
 
 RENDERERS = {
@@ -501,6 +673,7 @@ RENDERERS = {
     "m4_referenca": render_referenca,
     "m5_vrste": render_vrste,
     "m6_prag": render_prag,
+    "m7_zmogljivost": render_zmogljivost,
 }
 
 

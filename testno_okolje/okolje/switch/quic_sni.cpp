@@ -21,6 +21,9 @@ const size_t kSampleLen = 16;
 const size_t kTagLen = 16;
 const size_t kMaxCid = 20;
 const uint8_t kClientHello = 0x01;
+// Toliko zacetnih bajtov ClientHello se hrani kot odtis toka; zajame odjemalcevo
+// nakljucje (32 bajtov od odmika 6), zato je za vsako povezavo drugacen.
+const size_t kFingerprint = 40;
 const uint16_t kExtServerName = 0;
 const size_t kMaxSpans = 64;
 
@@ -169,6 +172,8 @@ struct Initial {
     size_t total = 0;
     const uint8_t *cid = nullptr;
     size_t cid_len = 0;
+    const uint8_t *scid = nullptr;
+    size_t scid_len = 0;
     bool is_initial = false;
 };
 
@@ -187,7 +192,10 @@ bool parse_long_header(const uint8_t *data, size_t len, Initial *out) {
     reader.at += cid_len;
 
     uint8_t scid_len = 0;
-    if (!reader.byte(&scid_len) || scid_len > kMaxCid || !reader.skip(scid_len)) return false;
+    if (!reader.byte(&scid_len) || scid_len > kMaxCid || !reader.left(scid_len)) return false;
+    out->scid = data + reader.at;
+    out->scid_len = scid_len;
+    reader.at += scid_len;
 
     out->is_initial = (first & 0x30) == 0x00;
     if (out->is_initial) {
@@ -230,12 +238,6 @@ bool open_initial(const uint8_t *data, size_t len, const Initial &packet,
                      data + packet.number_offset + number_len,
                      packet.body_len - number_len, payload);
 }
-
-struct Chunk {
-    uint64_t offset;
-    const uint8_t *data;
-    size_t len;
-};
 
 bool collect_crypto(const std::vector<uint8_t> &payload, std::vector<Chunk> *chunks) {
     Reader reader{payload.data(), payload.size()};
@@ -362,26 +364,28 @@ void Tracker::sweep(uint64_t now_ms) {
     }
 }
 
-bool Tracker::absorb(Flow &flow, const uint8_t *data, size_t len) {
-    std::vector<Chunk> chunks;
-    std::vector<std::vector<uint8_t>> payloads;
+bool Tracker::collect(const uint8_t *data, size_t len, std::vector<Chunk> *chunks,
+                     std::vector<std::vector<uint8_t>> *payloads, bool *bad) {
+    *bad = false;
     size_t at = 0;
     while (at < len) {
         Initial packet;
         if (!parse_long_header(data + at, len - at, &packet)) break;
         if (packet.is_initial) {
-            payloads.emplace_back();
-            if (!open_initial(data + at, len - at, packet, &payloads.back())) {
-                payloads.pop_back();
-            } else if (!collect_crypto(payloads.back(), &chunks)) {
-                flow.failed = true;
+            payloads->emplace_back();
+            if (!open_initial(data + at, len - at, packet, &payloads->back())) {
+                payloads->pop_back();
+            } else if (!collect_crypto(payloads->back(), chunks)) {
+                *bad = true;
                 return false;
             }
         }
         at += packet.total;
     }
-    if (chunks.empty()) return false;
+    return !chunks->empty();
+}
 
+bool Tracker::absorb(Flow &flow, const std::vector<Chunk> &chunks) {
     if (flow.spans.size() + chunks.size() > kMaxSpans) {
         flow.failed = true;
         return false;
@@ -427,11 +431,37 @@ bool Tracker::absorb(Flow &flow, const uint8_t *data, size_t len) {
 }
 
 Result Tracker::classify(const Key &key, const uint8_t *data, size_t len, uint64_t now_ms) {
+    std::vector<Chunk> chunks;
+    std::vector<std::vector<uint8_t>> payloads;
+    bool bad = false;
+    bool got = data != nullptr && len > 0 && collect(data, len, &chunks, &payloads, &bad);
+
+    // CRYPTO z odmikom 0 v desifriranem Initialu je zacetek ClientHello. Odtis prvih
+    // kFingerprint bajtov zajame nakljucje odjemalca, zato loci ponovljen datagram (enak
+    // odtis) od nove povezave na ponovno uporabljenem cetvorcku (drugacen odtis). Odjemalcev
+    // Initial sredi rokovanja ima DCID streznika in se s temi kljuci sploh ne odpre.
+    std::vector<uint8_t> hello;
+    for (const Chunk &chunk : chunks) {
+        if (chunk.offset != 0) continue;
+        size_t take = std::min(chunk.len, (size_t)kFingerprint);
+        hello.assign(chunk.data, chunk.data + take);
+        break;
+    }
+
     Flow &flow = touch(key, now_ms);
+    bool restarts = !hello.empty() && !flow.hello.empty() && flow.hello != hello;
+    if (restarts && (flow.resolved || flow.failed)) {
+        flow = Flow{};
+        flow.seen_ms = now_ms;
+    }
+    if (!hello.empty() && flow.hello.empty()) flow.hello = hello;
     Result result;
 
-    if (!flow.resolved && !flow.failed && data != nullptr && len > 0)
-        result.fresh = absorb(flow, data, len);
+    if (bad) {
+        flow.failed = true;
+    } else if (!flow.resolved && !flow.failed && got) {
+        result.fresh = absorb(flow, chunks);
+    }
 
     if (flow.path == PATH_NONE && !flow.resolved) flow.path = PATH_PROXY;
 

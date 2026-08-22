@@ -1,0 +1,41 @@
+name: C1
+
+# Izhodisce za pregled pravega spleta: odjemalec in prehod, brez stikala in brez
+# posrednika. Odjemalec je nastavljen natanko tako kot v B1 (isti naslov, isti
+# privzeti prehod 10.0.1.254, isti izklop IPv6, isti razresevalnik), zato je edina
+# razlika med C1 in B1 prisotnost stikala in posrednika. Prehod zato prevzame naslov
+# in MAC, ki ju v B1 nosi stikalo.
+
+topology:
+  nodes:
+    client:
+      kind: linux
+      image: browser:latest
+      shm-size: 1G
+      env:
+        DISPLAY: ":99"
+      binds:
+        - okolje:/opt/traffic
+      exec:
+        - bash -c "echo 1 >/proc/sys/net/ipv6/conf/all/disable_ipv6"
+        - ip link set dev eth1 address 00:00:00:00:01:0a
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip link set dev eth1 up
+        - ip neigh replace 10.0.1.254 lladdr 00:00:00:00:01:fe dev eth1
+        - ip route replace default via 10.0.1.254 dev eth1
+        - bash -c "echo 'nameserver 1.1.1.1' >/etc/resolv.conf"
+
+    gateway:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      cmd: sleep infinity
+      sysctls:
+        net.ipv4.ip_forward: 1
+      exec:
+        - ip link set dev eth1 address 00:00:00:00:01:fe
+        - ip addr add 10.0.1.254/24 dev eth1
+        - ip link set dev eth1 up
+        - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+  links:
+    - endpoints: ["client:eth1", "gateway:eth1"]

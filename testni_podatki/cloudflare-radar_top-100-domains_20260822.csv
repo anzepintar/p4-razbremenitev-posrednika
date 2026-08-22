@@ -1,0 +1,101 @@
+rank,domain,categories
+1,google.com,Search Engines
+2,googleapis.com,Information Technology;Content Servers
+3,cloudflare.com,Technology
+4,gstatic.com,Content Servers
+5,apple.com,Information Technology;Technology
+6,microsoft.com,Information Technology;Business
+7,facebook.com,Social Networks
+8,amazonaws.com,Technology
+9,googlevideo.com,Search Engines;Video Streaming
+10,fbcdn.net,Social Networks
+11,whatsapp.net,Instant Messengers;Internet Phone & VOIP
+12,amazon.com,Ecommerce
+13,bing.com,Search Engines
+14,instagram.com,Social Networks
+15,youtube.com,Video Streaming
+16,doubleclick.net,Trackers/Analytics;Advertisements
+17,apple-dns.net,Content Servers
+18,googleusercontent.com,Content Servers
+19,icloud.com,File Sharing;Content Servers
+20,akadns.net,Content Servers
+21,netflix.com,Movies;Video Streaming
+22,live.com,Technology;Webmail
+23,ntp.org,Technology;Government/Legal
+24,cloudflare-dns.com,Content Servers
+25,aaplimg.com,Information Technology;Content Servers;Technology
+26,googlesyndication.com,Trackers/Analytics;Search Engines;Advertisements
+27,akamai.net,Content Servers
+28,cdninstagram.com,Content Servers
+29,tiktokv.com,Social Networks;Video Streaming
+30,cloudfront.net,Content Servers
+31,chatgpt.com,Artificial Intelligence;Chat
+32,tiktokcdn.com,Content Servers;Social Networks
+33,openai.com,Artificial Intelligence;Chat;Technology
+34,ytimg.com,Content Servers
+35,gvt1.com,Content Servers
+36,akamaiedge.net,Content Servers
+37,ui.com,Technology
+38,yahoo.com,News & Media
+39,gvt2.com,Content Servers
+40,spotify.com,Audio Streaming
+41,office.com,Business
+42,fastly.net,Information Security;Information Technology;Technology
+43,samsung.com,Technology
+44,sentry.io,Business;Trackers/Analytics
+45,baidu.com,Search Engines
+46,criteo.com,Business;Trackers/Analytics
+47,dns.google,Information Technology
+48,app-analytics-services.com,Content Servers;Trackers/Analytics
+49,app-measurement.com,Trackers/Analytics;APIs
+50,roblox.com,Gaming;Safe for Kids
+51,whatsapp.com,Instant Messengers;Internet Phone & VOIP
+52,one.one,Information Technology
+53,msftncsi.com,Content Servers
+54,msn.com,News & Media
+55,wikipedia.org,Education;Reference
+56,linkedin.com,Professional Networking
+57,appsflyersdk.com,Content Servers;Trackers/Analytics;APIs
+58,trafficmanager.net,Information Technology;Content Servers
+59,google-analytics.com,Business;Trackers/Analytics;Technology
+60,azure.com,Technology
+61,steamserver.net,Gaming;Content Servers
+62,3gppnetwork.org,Content Servers
+63,applovin.com,Business;Trackers/Analytics;Technology
+64,snapchat.com,Photography;Social Networks
+65,windows.com,Information Technology
+66,googletagmanager.com,Content Servers;Trackers/Analytics
+67,amazon-adsystem.com,Trackers/Analytics;Advertisements
+68,cloud.microsoft,Information Technology;Business
+69,microsoftonline.com,Technology
+70,a2z.com,Content Servers
+71,windows.net,Technology
+72,amazon.dev,Content Servers
+73,adsafeprotected.com,Trackers/Analytics;Advertisements
+74,ggpht.com,Content Servers
+75,adtrafficquality.google,Trackers/Analytics
+76,rubiconproject.com,Business;Trackers/Analytics;Technology
+77,unity3d.com,Gaming;Technology
+78,skype.com,Instant Messengers;Internet Phone & VOIP
+79,msftconnecttest.com,Content Servers
+80,taboola.com,Business;Trackers/Analytics;Advertisements
+81,capcutapi.com,Content Servers
+82,xiaomi.com,Technology
+83,windowsupdate.com,Information Technology;Business
+84,tiktok.com,Social Networks;Video Streaming
+85,digicert.com,Information Security
+86,office.net,Content Servers
+87,vungle.com,Business;Trackers/Analytics;Technology
+88,statsigapi.net,Content Servers;Trackers/Analytics;APIs
+89,outlook.com,Webmail
+90,cdn-apple.com,Content Servers
+91,pubmatic.com,Business;Trackers/Analytics;Technology
+92,adsrvr.org,Trackers/Analytics;Advertisements
+93,gmail.com,Webmail
+94,lencr.org,Information Technology
+95,miui.com,Technology
+96,fastly-edge.com,Information Technology;Content Servers
+97,qq.com,News & Media
+98,aws.dev,Content Servers
+99,playstation.net,Gaming
+100,yandex.net,News & Media

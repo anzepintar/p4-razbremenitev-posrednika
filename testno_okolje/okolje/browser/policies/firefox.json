@@ -32,7 +32,7 @@
       },
       "network.http.http3.enable": {
         "Value": true,
-        "Status": "locked"
+        "Status": "default"
       }
     }
   }

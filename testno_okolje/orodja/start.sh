@@ -33,6 +33,7 @@ C0) HAS_SWITCH=0 HAS_SERVER=1 HAS_BROWSER=0 HAS_PROXY=0 ;;
 A0) HAS_SWITCH=0 HAS_SERVER=1 HAS_BROWSER=0 HAS_PROXY=1 ;;
 B0) HAS_SWITCH=1 HAS_SERVER=1 HAS_BROWSER=0 HAS_PROXY=1 ;;
 B1) HAS_SWITCH=1 HAS_SERVER=0 HAS_BROWSER=1 HAS_PROXY=1 ;;
+C1) HAS_SWITCH=0 HAS_SERVER=0 HAS_BROWSER=1 HAS_PROXY=0 ;;
 *) echo "start.sh: neznana postavitev '$TOPO'" >&2; exit 2 ;;
 esac
 
@@ -203,14 +204,16 @@ PY
 	phase "proxy running"
 fi
 
-if [ "$HAS_BROWSER" = 1 ]; then
+if [ "$HAS_BROWSER" = 1 ] && [ "$HAS_PROXY" = 1 ]; then
 	docker exec "$(node client)" /opt/traffic/browser/trust_nss.sh \
 		>>"$OUT/browser.log" 2>&1 || {
 		echo "start.sh: CA ni bilo mogoce zaupati v odjemalcu, glej $OUT/browser.log" >&2
 		exit 1
 	}
 	phase "CA zaupan v odjemalcu (sistem + NSS)"
+fi
 
+if [ "$HAS_BROWSER" = 1 ]; then
 	docker exec -d \
 		-e VNC_PASSWORD="$VNC_PASSWORD" \
 		-e VNC_GEOMETRY="$VNC_GEOMETRY" \
@@ -248,9 +251,14 @@ else
 	TARGET="$PROBE_URL"
 fi
 
+CA=(--cacert /opt/traffic/pki/trust.pem)
+if [ "$HAS_PROXY" = 0 ] && [ "$HAS_SERVER" = 0 ]; then
+	CA=()
+fi
+
 for _ in $(seq 1 60); do
 	code=$(docker exec "$(node client)" curl -s -o /dev/null -w '%{http_code}' \
-		--max-time 5 --cacert /opt/traffic/pki/trust.pem "${PROBE[@]}" 2>/dev/null || true)
+		--max-time 5 "${CA[@]}" "${PROBE[@]}" 2>/dev/null || true)
 	[ "$code" = "200" ] && break
 	sleep 1
 done

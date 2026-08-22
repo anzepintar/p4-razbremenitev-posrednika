@@ -45,6 +45,12 @@ struct KeyHash {
     }
 };
 
+struct Chunk {
+    uint64_t offset;
+    const uint8_t *data;
+    size_t len;
+};
+
 struct Result {
     bool has_sni = false;
     bool fresh = false;
@@ -61,6 +67,7 @@ class Tracker {
 
   private:
     struct Flow {
+        std::vector<uint8_t> hello;
         uint8_t path = PATH_NONE;
         bool resolved = false;
         bool failed = false;
@@ -72,7 +79,9 @@ class Tracker {
 
     Flow &touch(const Key &key, uint64_t now_ms);
     void sweep(uint64_t now_ms);
-    bool absorb(Flow &flow, const uint8_t *data, size_t len);
+    bool collect(const uint8_t *data, size_t len, std::vector<Chunk> *chunks,
+                 std::vector<std::vector<uint8_t>> *payloads, bool *bad);
+    bool absorb(Flow &flow, const std::vector<Chunk> &chunks);
 
     Config config_;
     std::unordered_map<Key, Flow, KeyHash> table_;

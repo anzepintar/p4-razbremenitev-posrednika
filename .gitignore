@@ -1,5 +1,6 @@
 testni_podatki/*
 !testni_podatki/vir.txt
+!testni_podatki/cloudflare-radar_top-100-domains_*.csv
 testno_okolje/okolje/pki/
 testno_okolje/okolje/out/
 testno_okolje/okolje/server/testset/
