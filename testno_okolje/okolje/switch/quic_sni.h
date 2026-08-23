@@ -63,7 +63,6 @@ class Tracker {
     void configure(const Config &config);
     Result classify(const Key &key, const uint8_t *data, size_t len, uint64_t now_ms);
     void pin(const Key &key, uint8_t path, uint64_t now_ms);
-    size_t flows() const { return table_.size(); }
 
   private:
     struct Flow {
@@ -87,8 +86,6 @@ class Tracker {
     std::unordered_map<Key, Flow, KeyHash> table_;
     uint32_t since_sweep_ = 0;
 };
-
-bool sni_from_datagram(const uint8_t *data, size_t len, uint32_t max_name, std::string *sni);
 
 }  // namespace quic
 

@@ -11,8 +11,6 @@ HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "experiment.yml"
 ASSIGNMENT = HERE / "lists" / "assignment.json"
 
-GROUPS = ("ip_black", "ip_white", "sni_black", "sni_white", "content_block", "unknown")
-
 MODES = ("brez", "ip_black", "ip_white", "sni_black", "sni_white", "content_block")
 POLICY_MODES = tuple(mode for mode in MODES if mode != "brez")
 

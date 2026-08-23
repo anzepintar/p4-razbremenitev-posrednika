@@ -2,28 +2,15 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 import verdict
+from conftest import metric_rows, write_cell
 
 
 def trial(directory, *, target=100.0, achieved=100.0, requests=100, errors=0,
           duration=12.0, warmup=0.0):
-    directory.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for index in range(requests):
-        failed = index < errors
-        rows.append({
-            "ts": 1000.0 + index * (duration / max(requests, 1)),
-            "url": "https://x/index.html", "group": "unknown",
-            "expect_blocked": False, "exitcode": 28 if failed else 0,
-            "time_appconnect": None if failed else 0.02,
-            "time_total": 0.05, "size_download": 0 if failed else 100_000,
-        })
-    (directory / "metrics.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows))
-    (directory / "meta.json").write_text(json.dumps(
-        {"duration_s": duration, "warmup_s": warmup, "workers": 16}))
+    write_cell(directory,
+               metric_rows(requests, duration=duration, failures=errors),
+               duration_s=duration, warmup_s=warmup, workers=16)
     (directory / "summary.json").write_text(json.dumps(
         {"rate_target_rps": target, "rate_achieved_rps": achieved}))
     return verdict.judge(directory)

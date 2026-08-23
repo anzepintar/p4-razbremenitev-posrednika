@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+from common import Writer, drain
+
 from . import verdicts
 from .clients import Config, FirefoxWorker, Target, follow, probe_chromium, probe_curl, row
 
@@ -53,23 +55,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.mode == "discover" and not args.domains:
         parser.error("iskanje koncnih gostiteljev potrebuje --domains")
     return args
-
-
-class Writer:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._handle = path.open("w", encoding="utf-8")
-        self._lock = asyncio.Lock()
-        self.rows: list[dict] = []
-
-    async def write(self, item: dict) -> None:
-        async with self._lock:
-            self._handle.write(json.dumps(item, ensure_ascii=False) + "\n")
-            self._handle.flush()
-            self.rows.append(item)
-
-    def close(self) -> None:
-        self._handle.close()
 
 
 def load_targets(path: Path, limit: int) -> list[Target]:
@@ -134,11 +119,7 @@ async def sweep(args: argparse.Namespace, targets: list[Target], cfg: Config) ->
 
     async def simple_worker() -> None:
         probe = PROBES[args.client]
-        while True:
-            try:
-                target = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
+        for target in drain(queue):
             await attempt(lambda item: probe(item, args.proto, cfg), target)
 
     async def browser_worker(index: int, hosts: list[str]) -> None:
@@ -146,11 +127,7 @@ async def sweep(args: argparse.Namespace, targets: list[Target], cfg: Config) ->
         seen = 0
         try:
             await worker.start()
-            while True:
-                try:
-                    target = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    return
+            for target in drain(queue):
                 if seen and args.restart_every and seen % args.restart_every == 0:
                     await worker.restart()
                 seen += 1
@@ -186,11 +163,7 @@ async def discover(args: argparse.Namespace, targets: list[Target], cfg: Config)
     lock = asyncio.Lock()
 
     async def worker() -> None:
-        while True:
-            try:
-                target = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
+        for target in drain(queue):
             result = await follow(target, cfg)
             via = "apex"
             if not result["ok"] and not target.domain.startswith("www."):

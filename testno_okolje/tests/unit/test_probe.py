@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import pytest
+import asyncio
 
+import plot
+import splet_report
 from probe import verdicts
+from probe.__main__ import with_retry
 
 CERTS = (
     "Subject:CN = cloudflare.com\n"
@@ -168,8 +171,6 @@ def index(rows):
 class TestPorocilo:
     def test_imenovalec_je_izhodisce(self):
         """Stran, ki ne dela niti brez prestrezanja, ne sme steti v odstotek."""
-        import splet_report
-
         base = index([probe("curl", "h3", "a.com", True),
                       probe("curl", "h3", "b.com", False, "curl:28")])
         measured = index([probe("curl", "h3", "a.com", True),
@@ -181,8 +182,6 @@ class TestPorocilo:
         assert splet_report.pct(cell["measured_ok"], cell["base_ok"]) == "100 %"
 
     def test_regresija_se_zabelezi(self):
-        import splet_report
-
         base = index([probe("chromium", "h2", "a.com", True)])
         measured = index([probe("chromium", "h2", "a.com", False, "ERR_CERT_AUTHORITY_INVALID")])
         cell = splet_report.cells(base, measured)[("chromium", "h2")]
@@ -190,8 +189,6 @@ class TestPorocilo:
         assert [item["error"] for item in cell["broken"]] == ["ERR_CERT_AUTHORITY_INVALID"]
 
     def test_kar_dela_sele_v_b1_ni_regresija(self):
-        import splet_report
-
         base = index([probe("curl", "h2", "a.com", False, "curl:28")])
         measured = index([probe("curl", "h2", "a.com", True)])
         cell = splet_report.cells(base, measured)[("curl", "h2")]
@@ -199,16 +196,12 @@ class TestPorocilo:
         assert [item["domain"] for item in cell["recovered"]] == ["a.com"]
 
     def test_brez_izhodisca_ni_deleza(self):
-        import splet_report
-
         assert splet_report.pct(0, 0) == "-"
 
     def test_stolpci_stevcev_obstajajo_v_programu_p4(self):
-        """Imena stevcev vezejo steering.p4, steer.py in plot.py; ce se razidejo,
-        bi porocilo tiho izpisalo nicle."""
-        import plot
-        import splet_report
-
+        """SWITCH_COLUMNS je vrstni red stolpcev v porocilu in ne vir imen, zato
+        ostaja zapisan. Ce se ime razide s programom P4, bi porocilo tiho
+        izpisalo nicle, zato tu preverimo, da je podmnozica."""
         assert not set(splet_report.SWITCH_COLUMNS) - set(plot.SWITCH_KEYS)
 
 
@@ -217,10 +210,6 @@ class TestPonovitev:
     naslednja pa je stekla takoj; brez ponovitve bi tak raztros pristal v tabeli."""
 
     def run(self, izidi, retries):
-        import asyncio
-
-        from probe.__main__ import with_retry
-
         preostali = list(izidi)
 
         async def probe():
@@ -290,8 +279,6 @@ class TestNapakaStreznika:
         assert verdicts.server_error(title="Cloudflare") is None
 
     def test_porocilo_popravi_ze_zapisane_vrstice(self):
-        import splet_report
-
         vrstica = {"ok": True, "http_code": 502, "domain": "a.com"}
         assert splet_report.recheck(vrstica)["ok"] is False
         cela = {"ok": True, "http_code": 200, "title": "Cloudflare"}

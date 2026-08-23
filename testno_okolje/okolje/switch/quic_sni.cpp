@@ -476,16 +476,4 @@ void Tracker::pin(const Key &key, uint8_t path, uint64_t now_ms) {
     if (flow.path == PATH_NONE || path == PATH_BLOCK) flow.path = path;
 }
 
-bool sni_from_datagram(const uint8_t *data, size_t len, uint32_t max_name, std::string *sni) {
-    Config config;
-    config.max_name = max_name;
-    Tracker tracker;
-    tracker.configure(config);
-    Key key;
-    Result result = tracker.classify(key, data, len, 0);
-    if (!result.has_sni) return false;
-    *sni = result.sni;
-    return true;
-}
-
 }  // namespace quic

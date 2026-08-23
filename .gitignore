@@ -11,4 +11,3 @@ __pycache__/
 *.pyc
 dokumentacija/zapiski/*
 mitmproxy-quic-transparent/
-P4-TLS/

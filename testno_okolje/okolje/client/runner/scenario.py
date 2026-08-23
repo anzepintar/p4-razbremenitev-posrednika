@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-PROTOCOLS = ("h2", "h3")
+if TYPE_CHECKING:
+    from experiment import Experiment
+
 INDEX = "/index.html"
 BIG = "/big.bin"
 
@@ -35,25 +38,9 @@ class Site:
 
 
 @dataclass(frozen=True)
-class Run:
-    seed: int
-    out: Path
-    cacert: Path
-    testset: Path
-    subset: str
-    connect_timeout_s: float
-    max_time_s: float
-    object_kb: int
-
-    @property
-    def root(self) -> Path:
-        return self.testset / self.subset
-
-
-@dataclass(frozen=True)
 class Scenario:
     sites: dict[str, Site]
-    run: Run
+    run: "Experiment"
     quic_share: float
 
     def domains(self) -> list[str]:
@@ -73,19 +60,11 @@ class Scenario:
             )
         return found
 
-    def by_group(self, group: str) -> list[Site]:
-        return sorted(
-            (s for s in self.sites.values() if s.group == group), key=lambda s: s.domain
-        )
-
     def ip_for(self, domain: str) -> str:
         site = self.sites.get(domain)
         if site is None:
             raise ScenarioError(f"domene '{domain}' ni v razdelitvi")
         return site.ip
-
-    def page_file(self, domain: str) -> Path:
-        return self.run.root / domain / "index.html"
 
     @property
     def object_path(self) -> str:
@@ -155,16 +134,7 @@ def load(
     if not sites:
         raise ScenarioError("razdelitev je prazna; pozeni gen_lists.py")
 
-    run = Run(
-        seed=settings.seed,
-        out=settings.out,
-        cacert=settings.cacert,
-        testset=Path(testset) if testset else settings.testset,
-        subset=settings.subset,
-        connect_timeout_s=settings.connect_timeout_s,
-        max_time_s=settings.max_time_s,
-        object_kb=settings.object_kb,
-    )
+    run = replace(settings, testset=Path(testset)) if testset else settings
     if not run.root.is_dir():
         raise ScenarioError(f"nabora '{run.subset}' ni v {run.testset}")
 

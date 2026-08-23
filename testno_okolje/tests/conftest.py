@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,8 @@ OKOLJE = ROOT / "okolje"
 sys.path.insert(0, str(ROOT / "orodja"))
 sys.path.insert(0, str(OKOLJE))
 sys.path.insert(0, str(OKOLJE / "client"))
+
+from runner.curlrun import PROTO_FLAG
 
 TOPO = "B0"
 CLIENT = f"clab-{TOPO}-client"
@@ -85,6 +88,49 @@ def lists_dir():
     return OKOLJE / "lists"
 
 
+P4 = OKOLJE / "switch" / "steering.p4"
+
+
+def p4_const(name: str) -> int:
+    """Konstanta iz steering.p4. Testi jo berejo iz izvorne kode, da se meje
+    razclenjevalnika in test ne moreta razhajati."""
+    found = re.search(rf"const\s+bit<\d+>\s+{name}\s*=\s*(\d+)",
+                      P4.read_text(encoding="utf-8"))
+    assert found, f"konstante {name} ni v steering.p4"
+    return int(found.group(1))
+
+
+SIZE = 100_000
+
+
+def metric_rows(count: int, *, duration: float, group: str = "unknown",
+                expect_blocked: bool = False, failures: int = 0,
+                size: int = SIZE) -> list[dict]:
+    """Vrstice metrik za lazno celico. Neuspesne so prve, ker jih obe merili
+    stejeta po delezu in ne po vrstnem redu."""
+    rows = []
+    for index in range(count):
+        failed = index < failures
+        rows.append({
+            "ts": 1000.0 + index * (duration / max(count, 1)),
+            "url": "https://x.example/index.html",
+            "group": group,
+            "expect_blocked": expect_blocked,
+            "exitcode": 28 if failed else 0,
+            "time_appconnect": None if failed else 0.02,
+            "time_total": 0.05,
+            "size_download": 0 if failed else size,
+        })
+    return rows
+
+
+def write_cell(directory: Path, rows: list[dict], **meta) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "metrics.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    (directory / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
 TESTSET = OKOLJE / "server" / "testset"
 
 
@@ -124,9 +170,8 @@ def benign():
 
 
 def curl(domain: str, proto: str = "h2", *, path: str = "/index.html", timeout: int = 15):
-    flag = {"h2": "--http2", "h3": "--http3-only"}[proto]
     argv = [
-        "curl", "--silent", "--output", "/dev/null", flag,
+        "curl", "--silent", "--output", "/dev/null", *PROTO_FLAG[proto],
         "--max-time", str(timeout), "--cacert", CACERT,
         "--resolve", f"{domain}:443:{SERVER_IP}",
         "--write-out", "%{json}",
@@ -140,9 +185,8 @@ def curl(domain: str, proto: str = "h2", *, path: str = "/index.html", timeout: 
 
 
 def cert_issuer(domain: str, proto: str = "h2", timeout: int = 15) -> str:
-    flag = {"h2": "--http2", "h3": "--http3-only"}[proto]
     argv = [
-        "curl", "-sv", flag, "--max-time", str(timeout),
+        "curl", "-sv", *PROTO_FLAG[proto], "--max-time", str(timeout),
         "--cacert", CACERT, "--resolve", f"{domain}:443:{SERVER_IP}",
         "-o", "/dev/null", f"https://{domain}/index.html",
     ]

@@ -11,7 +11,7 @@ RESULTS="$OUT/$NAME"
 ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl"
 WARMUP_ARTEFACTS="metrics_ogrevanje.jsonl summary_ogrevanje.json proxy_flows.jsonl"
 
-IFS='|' read -r PROTOCOLS MODES TIMEOUT DOMAINS <<<"$(python3 - <<'PY'
+IFS='|' read -r PROTOCOLS MODES DOMAINS <<<"$(python3 - <<'PY'
 import sys
 sys.path.insert(0, "okolje")
 import experiment as exp
@@ -20,7 +20,6 @@ e = exp.load()
 print("|".join([
     " ".join(f"{name}:{share}" for name, share in sorted(e.protocols.items())),
     " ".join(m for m in e.modes),
-    f"{e.connect_timeout_s:g}",
     str(e.total),
 ]))
 PY
@@ -242,10 +241,26 @@ PY
 
 # max_rps <meritev> <postavitev> <protokol> -> hitrost ali prazno
 max_rps() {
-	python3 -c "
-import json, sys
-from pathlib import Path
-path = Path('$OUT/$1/$2/$3/max.json')
-print(json.loads(path.read_text())['max_rps'] if path.is_file() else '')
-"
+	./orodja/maxrps.py "$OUT/$1/$2/$3"
+}
+
+# Obremenitev izpeljemo iz iskanja: 70 % manjsega od maksimumov, ki sta ju nasla m1 in m3,
+# da obe postavitvi merita pri isti obremenitvi in obe varno pod nasicenjem.
+RATE_H2="${RATE_H2:-80}"
+RATE_H3="${RATE_H3:-10}"
+
+load_rate() {
+	local proto="$1" a b picked
+	a="$(max_rps m1_posrednik A0 "$proto")"
+	b="$(max_rps m3_stikalo B0 "$proto")"
+	if [ -n "$a" ] && [ -n "$b" ]; then
+		picked=$(python3 -c "print(max(1, int(min($a, $b) * 0.7)))")
+		echo "$picked"
+		return
+	fi
+	case "$proto" in
+	h3) picked="$RATE_H3" ;;
+	*) picked="$RATE_H2" ;;
+	esac
+	echo "$picked"
 }

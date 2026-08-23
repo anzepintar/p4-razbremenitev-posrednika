@@ -96,17 +96,17 @@ def _address_part(prefix: str) -> str:
     return re.escape(address if bits in ("", "32") else prefix)
 
 
-def ignore_hosts(domains: list[str], ips: list[str] | None = None) -> str:
+def _pattern(domains: list[str], ips: list[str] | None, suffix: str) -> str:
     parts = [_domain_part(d) for d in sorted(domains)]
     parts += [_address_part(p) for p in sorted(ips or [])]
     if not parts:
         return ""
-    return f"^(?:{'|'.join(parts)}):{TLS_PORT}$"
+    return f"^(?:{'|'.join(parts)}){suffix}$"
+
+
+def ignore_hosts(domains: list[str], ips: list[str] | None = None) -> str:
+    return _pattern(domains, ips, f":{TLS_PORT}")
 
 
 def block_filter(domains: list[str], ips: list[str] | None = None) -> str:
-    parts = [_domain_part(d) for d in sorted(domains)]
-    parts += [_address_part(p) for p in sorted(ips or [])]
-    if not parts:
-        return ""
-    return f"^(?:{'|'.join(parts)})$"
+    return _pattern(domains, ips, "")

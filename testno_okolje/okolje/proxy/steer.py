@@ -15,18 +15,13 @@ COMMON = Path("/opt/traffic")
 
 sys.path.insert(0, str(COMMON))
 
+import counters
 import sni as sni_lists
 
 SNI_TABLE = "SwitchIngress.sni_policy"
 IP_TABLE = "SwitchIngress.ip_policy"
 COUNTER = "SwitchIngress.stats"
-STATS = ("sni_seen", "sni_blocked", "sni_white", "quic",
-         "ip_blocked", "ip_white", "denied",
-         "quic_sni", "quic_blocked", "quic_white")
-
-
-class SteeringError(ValueError):
-    pass
+STATS = counters.NAMES
 
 
 def connect(grpc_addr: str, push_config: bool):
@@ -46,10 +41,10 @@ def quiet():
 def write_entries(sh, domains: dict[str, list[str]], ips: dict[str, list[str]]) -> None:
     for name, action in (("black", "sni_block"), ("white", "sni_white")):
         for pattern in domains[name]:
-            value, mask, priority = sni_lists.entry(pattern)
+            _, _, priority = sni_lists.entry(pattern)
             with quiet():
                 entry = sh.TableEntry(SNI_TABLE)(action=f"SwitchIngress.{action}")
-                entry.match["meta.sni"] = f"0x{value.hex()}&&&0x{mask.hex()}"
+                entry.match["meta.sni"] = sni_lists.match(pattern)
                 entry.priority = priority
                 try:
                     entry.insert()

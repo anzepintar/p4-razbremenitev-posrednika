@@ -1,23 +1,13 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-import pytest
-
-P4 = Path(__file__).resolve().parents[2] / "okolje" / "switch" / "steering.p4"
+from conftest import P4, p4_const
 
 EXT_SERVER_NAME = 0
 EXT_KEY_SHARE = 51
 EXT_RENEGOTIATION = 65281
 EXT_EC_POINT_FORMATS = 11
-
-
-def p4_const(name: str) -> int:
-    text = P4.read_text(encoding="utf-8")
-    found = re.search(rf"const\s+bit<\d+>\s+{name}\s*=\s*(\d+)", text)
-    assert found, f"konstante {name} ni v steering.p4"
-    return int(found.group(1))
 
 
 def p4_extension_slots() -> int:

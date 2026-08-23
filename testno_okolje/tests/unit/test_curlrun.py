@@ -106,3 +106,16 @@ class TestCiljZahteve:
 
     def test_velik_objekt_ko_je_nastavljen(self):
         assert self.scenario_with(10240).object_path == BIG
+
+
+class TestSkladnostZEksperimentom:
+    """Ime velikega objekta stoji na dveh mestih in ju ni mogoce zdruziti.
+
+    Odjemalec v vsebniku ima na poti samo /opt/traffic/client, zato scenario.py
+    modula experiment ne more uvoziti na vrhu. Namesto tega ju vezemo s testom.
+    """
+
+    def test_ime_velikega_objekta_se_ujema(self):
+        import experiment as exp
+
+        assert BIG == "/" + exp.BIG_OBJECT

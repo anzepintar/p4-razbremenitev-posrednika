@@ -5,14 +5,12 @@ import json
 import re
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
 import plot
+from conftest import P4, ROOT, p4_const
 
-ROOT = Path(__file__).resolve().parents[2]
-P4 = ROOT / "okolje" / "switch" / "steering.p4"
 VECTORS = ROOT / "tests" / "data" / "quic_initials.json"
 IMAGE = "p4-switch:latest"
 SELFTEST = "/opt/switch/lib/quic_selftest"
@@ -31,12 +29,6 @@ def p4_counters() -> list[str]:
     text = P4.read_text(encoding="utf-8")
     found = re.findall(r"const\s+bit<32>\s+STAT_(\w+)\s*=\s*(\d+)", text)
     return [name.lower() for name, _ in sorted(found, key=lambda item: int(item[1]))]
-
-
-def p4_const(name: str) -> int:
-    found = re.search(rf"const\s+bit<\d+>\s+{name}\s*=\s*(\d+)", P4.read_text(encoding="utf-8"))
-    assert found, f"konstante {name} ni v steering.p4"
-    return int(found.group(1))
 
 
 def selftest_present() -> bool:

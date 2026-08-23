@@ -6,8 +6,8 @@ import time
 import pytest
 
 from conftest import (
-    CLIENT, MITM, SERVER_IP, capture, capture_read, cert_issuer, counters, curl,
-    docker, flow_count, in_group,
+    CLIENT, MITM, PROTO_FLAG, SERVER_IP, capture, capture_read, cert_issuer,
+    counters, curl, docker, flow_count, in_group,
 )
 
 
@@ -34,7 +34,7 @@ class TestPrivzetaPot:
 
     def test_streznik_vidi_pravi_sni(self, lab, benign):
         argv = [
-            "curl", "-s", "-o", "/dev/null", "--http2", "--max-time", "15",
+            "curl", "-s", "-o", "/dev/null", *PROTO_FLAG["h2"], "--max-time", "15",
             "--cacert", "/opt/traffic/pki/trust.pem",
             "--resolve", f"{benign}:443:{SERVER_IP}",
             "--write-out", '%header{x-sni}|%header{x-domain}',
@@ -199,7 +199,7 @@ class TestQuicPregled:
 
     def test_streznik_vidi_pravi_sni_tudi_pri_h3(self, lab, benign):
         argv = [
-            "curl", "-s", "-o", "/dev/null", "--http3-only", "--max-time", "15",
+            "curl", "-s", "-o", "/dev/null", *PROTO_FLAG["h3"], "--max-time", "15",
             "--cacert", "/opt/traffic/pki/trust.pem",
             "--resolve", f"{benign}:443:{SERVER_IP}",
             "--write-out", "%header{x-sni}|%header{x-domain}",
@@ -209,45 +209,29 @@ class TestQuicPregled:
         assert out == f"{benign}|{benign}"
 
 
+# Crna domena se pri obeh prenosih obnasa enako, le stevec je drug. Bela domena
+# je nasprotno nesimetricna, ker jo pri TCP posrednik tunelira, pri QUIC pa jo
+# stikalo spelje mimo njega, zato tam razreda ostaneta locena.
+@pytest.mark.parametrize("proto,counter",
+                         [("h2", "sni_blocked"), ("h3", "quic_blocked")],
+                         ids=["h2", "h3"])
 class TestCrnaDomena:
 
-    def test_zahteva_ne_uspe(self, lab):
+    def test_zahteva_ne_uspe(self, lab, proto, counter):
         domain = pick("black")
-        result = curl(domain, "h2", timeout=8)
+        result = curl(domain, proto, timeout=8)
         assert result.get("http_code") in (0, None) or result.get("exitcode", 0) != 0
 
-    def test_stevec_na_stikalu_naraste(self, lab):
+    def test_stevec_na_stikalu_naraste(self, lab, proto, counter):
         domain = pick("black")
         before = counters()
-        curl(domain, "h2", timeout=8)
+        curl(domain, proto, timeout=8)
         after = counters()
-        assert after["sni_blocked"] > before["sni_blocked"]
+        assert after[counter] > before[counter]
 
-    def test_posrednik_seje_ne_zabelezi(self, lab):
+    def test_posrednik_seje_ne_zabelezi(self, lab, proto, counter):
         domain = pick("black")
-        curl(domain, "h2", timeout=8)
-        time.sleep(1)
-        hosts = {flow.get("host") or flow.get("pretty_host") for flow in proxy_flows()}
-        assert domain not in hosts
-
-
-class TestQuicCrnaDomena:
-
-    def test_zahteva_ne_uspe(self, lab):
-        domain = pick("black")
-        result = curl(domain, "h3", timeout=8)
-        assert result.get("http_code") in (0, None) or result.get("exitcode", 0) != 0
-
-    def test_stevec_na_stikalu_naraste(self, lab):
-        domain = pick("black")
-        before = counters()
-        curl(domain, "h3", timeout=8)
-        after = counters()
-        assert after["quic_blocked"] > before["quic_blocked"]
-
-    def test_posrednik_seje_ne_zabelezi(self, lab):
-        domain = pick("black")
-        curl(domain, "h3", timeout=8)
+        curl(domain, proto, timeout=8)
         time.sleep(1)
         hosts = {flow.get("host") or flow.get("pretty_host") for flow in proxy_flows()}
         assert domain not in hosts

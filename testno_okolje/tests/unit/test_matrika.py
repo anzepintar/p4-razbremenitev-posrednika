@@ -8,6 +8,7 @@ import time
 import pytest
 
 import plot
+from conftest import SIZE, metric_rows, write_cell
 from runner.__main__ import RequestPacer
 from runner.scenario import (
     ScenarioError, Scenario, Site, build_pool, parse_groups,
@@ -132,7 +133,6 @@ def link(byte_count: int = 0) -> dict:
 
 
 CLIENT_BYTES = 12_000_000
-SIZE = 100_000
 
 
 def cell_run(directory, *, requests: int = 100, duration: float = DURATION,
@@ -140,26 +140,12 @@ def cell_run(directory, *, requests: int = 100, duration: float = DURATION,
              cpu_ms: float = 1_500.0, quota: float | None = 2.0,
              proxy_bytes: int | None = None, switch_after: dict | None = None,
              flows: int = 0, node: str = "mitm"):
-    directory.mkdir(parents=True, exist_ok=True)
-    limit = int(requests * stopped_share)
-    rows = []
-    for index in range(requests):
-        halted = blocked and index < limit
-        rows.append({
-            "ts": 1000.0 + index * (duration / max(requests, 1)),
-            "url": "https://x.example/index.html",
-            "group": "sni_black" if blocked else "unknown",
-            "expect_blocked": blocked,
-            "exitcode": 28 if halted else 0,
-            "time_appconnect": None if halted else 0.02,
-            "time_total": 0.05,
-            "size_download": 0 if halted else SIZE,
-        })
-    (directory / "metrics.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows))
-    (directory / "meta.json").write_text(json.dumps(
-        {"meritev": "test", "postavitev": "B0", "groups": "unknown",
-         "workers": 16, "duration_s": duration, "warmup_s": warmup}))
+    rows = metric_rows(requests, duration=duration,
+                       group="sni_black" if blocked else "unknown",
+                       expect_blocked=blocked,
+                       failures=int(requests * stopped_share) if blocked else 0)
+    write_cell(directory, rows, meritev="test", postavitev="B0", groups="unknown",
+               workers=16, duration_s=duration, warmup_s=warmup)
 
     (directory / "links_before.json").write_text(json.dumps(
         {"client": {"eth1": link()}, "mitm": {"eth1": link()}}))

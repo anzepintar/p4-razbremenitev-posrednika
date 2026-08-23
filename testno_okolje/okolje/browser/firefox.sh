@@ -15,21 +15,8 @@ set -euo pipefail
 # Vsiljeni h3 velja za tocno ime gostitelja: preslikava za apex domeno ne velja vec,
 # ko stran preusmeri na www, zato pregled vanjo vpise koncne gostitelje.
 
-# Pravilnik se namesti ob vsakem zagonu, zato ga je mogoce spremeniti brez ponovne
-# gradnje slike, tako kot zastavice. Pregled zaganja vec brskalnikov hkrati, zato gre
-# zapis prek zacasne datoteke in preimenovanja; ce je vsebina ze prava, se ne zgodi nic.
-install_policy() {
-	local src="$1" dst="$2" tmp
-	[ -f "$src" ] || return 0
-	cmp -s "$src" "$dst" 2>/dev/null && return 0
-	mkdir -p "$(dirname "$dst")"
-	tmp=$(mktemp "$(dirname "$dst")/.policy.XXXXXX") || return 0
-	if cat "$src" >"$tmp" && chmod 644 "$tmp"; then
-		mv -f "$tmp" "$dst"
-	else
-		rm -f "$tmp"
-	fi
-}
+# shellcheck source=okolje/browser/lib.sh
+. /opt/traffic/browser/lib.sh
 
 # Firefox bere obe poti, zato gre pravilnik v obe.
 POLICY=/opt/traffic/browser/policies/firefox.json
@@ -48,9 +35,7 @@ alt_svc() {
 	if [ -n "${MARIONETTE_PORT:-}" ]; then
 		printf 'user_pref("marionette.port", %s);\n' "$MARIONETTE_PORT"
 		echo 'user_pref("browser.shell.checkDefaultBrowser", false);'
-	fi
 
-	if [ "${MARIONETTE_PORT:-}" ]; then
 		# Pregled meri stran, ne firefoxa: brez teh nastavitev se v stevce stikala in
 		# v dnevnik posrednika prilije se firefoxov lasten promet do storitev Mozille,
 		# ki je bil izmerjen v tisocih zahtev na blok.

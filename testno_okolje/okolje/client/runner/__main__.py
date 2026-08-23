@@ -7,6 +7,8 @@ import random
 import time
 from pathlib import Path
 
+from common import Writer
+
 from . import curlrun, scenario as scenario_mod, summarize
 
 CACERT_WAIT = 60.0
@@ -23,24 +25,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--groups", default=None)
     parser.add_argument("--label", default=None)
     return parser.parse_args(argv)
-
-
-class MetricsWriter:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._handle = path.open("w", encoding="utf-8")
-        self._lock = asyncio.Lock()
-        self.rows: list[dict] = []
-
-    async def write(self, rows: list[dict]) -> None:
-        async with self._lock:
-            for row in rows:
-                self._handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-                self.rows.append(row)
-            self._handle.flush()
-
-    def close(self) -> None:
-        self._handle.close()
 
 
 class RequestPacer:
@@ -78,10 +62,9 @@ def build_request(
 async def run_worker(
     scenario: scenario_mod.Scenario,
     index: int,
-    writer: MetricsWriter,
+    writer: Writer,
     rate: RequestPacer,
     pool: scenario_mod.Pool,
-    args: argparse.Namespace,
     deadline: float | None,
     max_requests: int | None,
     counter: dict,
@@ -111,7 +94,7 @@ async def run_worker(
         }
         rows = [curlrun.to_metric(record, labels=labels)
                 for record in curlrun.parse_output(stdout)]
-        await writer.write(rows)
+        await writer.write(*rows)
         counter["done"] += 1
         await rate.account()
 
@@ -149,14 +132,14 @@ async def main_async(args: argparse.Namespace) -> int:
         raise SystemExit(f"runner: {error}")
 
     suffix = f"_{args.label}" if args.label else ""
-    writer = MetricsWriter(scenario.run.out / f"metrics{suffix}.jsonl")
+    writer = Writer(scenario.run.out / f"metrics{suffix}.jsonl")
     rate = RequestPacer(args.rate_rps)
     counter = {"done": 0}
     workers = max(args.workers, 1)
     try:
         await asyncio.gather(
             *(
-                run_worker(scenario, index, writer, rate, pool, args,
+                run_worker(scenario, index, writer, rate, pool,
                            deadline, args.requests, counter)
                 for index in range(workers)
             )

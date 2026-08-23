@@ -15,12 +15,15 @@ from matplotlib.patches import Patch
 
 HERE = Path(__file__).resolve().parent
 OKOLJE = HERE.parent / "okolje"
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(OKOLJE))
 sys.path.insert(0, str(OKOLJE / "client"))
 
+import counters
+import maxrps
+from nodestats import NODES
 from runner.summarize import as_expected_pct, percentile, responded
 
-NODES = ("client", "switch", "mitm", "server")
 NODE_LABELS = {"client": "odjemalec", "switch": "stikalo",
                "mitm": "posrednik", "server": "strežnik"}
 MODE_LABELS = {
@@ -36,9 +39,7 @@ TOPO_NAMES = {"C0": "C", "A0": "A", "B0": "B"}
 TOPO_LABELS = {"C0": "C referenca", "A0": "A posrednik", "B0": "B stikalo + posrednik"}
 
 LINK_KEYS = ("rx_packets", "tx_packets", "rx_bytes", "tx_bytes")
-SWITCH_KEYS = ("sni_seen", "sni_blocked", "sni_white", "quic",
-               "ip_blocked", "ip_white", "denied",
-               "quic_sni", "quic_blocked", "quic_white")
+SWITCH_KEYS = counters.NAMES
 
 # Pricakovana pravilnost. Razclenjevalnik ClientHello v P4 vidi le prvih sest razsiritev
 # in preskoci le telesa do MAX_EXT_BODY, zato pri TLS prek TCP nekaj imen po zasnovi ne ujame;
@@ -274,8 +275,7 @@ def rates(cells: dict) -> list[int]:
 
 
 def max_rps(root: Path, topo: str, proto: str) -> int | None:
-    found = read_json(root / topo / proto / "max.json")
-    return found.get("max_rps")
+    return maxrps.read(root / topo / proto)
 
 
 def shares(cells: dict) -> list[int]:

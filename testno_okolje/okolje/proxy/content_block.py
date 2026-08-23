@@ -43,6 +43,12 @@ def load_rules(path: Path) -> list[tuple[int, str, flowfilter.TFilter]]:
     return rules
 
 
+def describe(rules: list[tuple[int, str, flowfilter.TFilter]], source: Path) -> list[str]:
+    lines = [f"{source}: {len(rules)} pravil, prag {THRESHOLD}"]
+    lines += [f"  {weight:>4}  {name:<20}  {match}" for weight, name, match in rules]
+    return lines
+
+
 class ContentBlock:
     def __init__(self) -> None:
         self.rules: list[tuple[int, str, flowfilter.TFilter]] = []
@@ -59,10 +65,8 @@ class ContentBlock:
             ctx.master.shutdown()
             return
 
-        logging.info("content_block: %d pravil iz %s, prag %d",
-                     len(self.rules), RULES, THRESHOLD)
-        for weight, name, match in self.rules:
-            logging.info("content_block:   %4d %-20s %s", weight, name, match)
+        for line in describe(self.rules, RULES):
+            logging.info("content_block: %s", line)
 
     def response(self, flow: http.HTTPFlow) -> None:
         if not self.rules or flow.response is None:
@@ -98,9 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"content_block: {error}", file=sys.stderr)
         return 1
 
-    print(f"{args.rules}: {len(rules)} pravil, prag {THRESHOLD}")
-    for weight, name, match in rules:
-        print(f"  {weight:>4}  {name:<20}  {match}")
+    print("\n".join(describe(rules, args.rules)))
     return 0
 
 
