@@ -164,8 +164,6 @@ finish() {
 	./orodja/plot.py "$RESULTS"
 }
 
-# --- iskanje najvecje vzdrzne hitrosti (RFC 2544: uokvirjanje, nato bisekcija) ---
-
 SEARCH_START="${SEARCH_START:-8}"
 SEARCH_MAX="${SEARCH_MAX:-512}"
 SEARCH_TOLERANCE="${SEARCH_TOLERANCE:-5}"
@@ -242,7 +240,8 @@ PY
 # search_all <postavitev> ; postavi topologijo in poisce mejo v obeh protokolih
 search_all() {
 	local topo="$1" entry proto share
-	start_topo "$topo"
+	start_topo "$topo" || return 1
+	BLOCK_FAILED=0
 	for entry in $PROTOCOLS; do
 		[ "$BLOCK_FAILED" = 1 ] && break
 		proto="${entry%%:*}"
@@ -250,6 +249,7 @@ search_all() {
 		echo "  -- $proto --"
 		search_max "$topo" "$RESULTS/$topo/$proto" "$share" || true
 	done
+	cleanup
 }
 
 # max_rps <meritev> <postavitev> <protokol> -> hitrost ali prazno
@@ -257,15 +257,14 @@ max_rps() {
 	./orodja/maxrps.py "$OUT/$1/$2/$3"
 }
 
-# Obremenitev izpeljemo iz iskanja: 70 % manjsega od maksimumov, ki sta ju nasla m2 in m3,
-# da obe postavitvi merita pri isti obremenitvi in obe varno pod nasicenjem.
+# Obremenitev je 70 % manjsega od maksimumov, ki ju je nasel m2.
 RATE_H2="${RATE_H2:-80}"
 RATE_H3="${RATE_H3:-10}"
 
 load_rate() {
 	local proto="$1" a b picked
-	a="$(max_rps m2_prestrezanje A0 "$proto")"
-	b="$(max_rps m3_stikalo B0 "$proto")"
+	a="$(max_rps m2_stikalo A0 "$proto")"
+	b="$(max_rps m2_stikalo B0 "$proto")"
 	if [ -n "$a" ] && [ -n "$b" ]; then
 		picked=$(python3 -c "print(max(1, int(min($a, $b) * 0.7)))")
 		echo "$picked"

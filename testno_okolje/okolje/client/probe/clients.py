@@ -91,8 +91,6 @@ async def run(argv: list[str], timeout: float, env: dict | None = None) -> tuple
     return process.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
-# --- curl ---------------------------------------------------------------------
-
 async def probe_curl(target: Target, proto: str, cfg: Config) -> dict:
     argv = verdicts.curl_argv(
         target.url, proto,
@@ -133,8 +131,6 @@ async def follow(target: Target, cfg: Config) -> dict:
     }
 
 
-# --- chromium -----------------------------------------------------------------
-
 async def probe_chromium(target: Target, proto: str, cfg: Config) -> dict:
     profile = tempfile.mkdtemp(prefix="chromium-")
     env = {**verdicts.chromium_env(target.host, proto), "USER_DATA_DIR": profile}
@@ -157,8 +153,6 @@ def tail(text: str, lines: int = 3) -> str | None:
               if line.strip() and not any(word in line for word in noise)]
     return " | ".join(useful[-lines:])[:200] or None
 
-
-# --- firefox ------------------------------------------------------------------
 
 class FirefoxWorker:
     """Ena instanca firefoxa s svojim profilom in svojimi vrati Marionette.

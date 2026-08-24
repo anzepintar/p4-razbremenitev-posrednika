@@ -24,9 +24,6 @@ from .clients import Config, FirefoxWorker, Target, follow, probe_chromium, prob
 PROBES = {"curl": probe_curl, "chromium": probe_chromium}
 DEFAULT_JOBS = {"curl": 8, "chromium": 4, "firefox": 4}
 
-# Izmerjeno: prva zahteva na gostitelja se je vcasih ustavila do iztaka, naslednja pa
-# je stekla v desetinki sekunde. Brez ponovitve bi tak raztros pristal v tabeli kot
-# stran, ki ne dela.
 RETRY_PAUSE_S = 2.0
 
 
@@ -143,8 +140,6 @@ async def sweep(args: argparse.Namespace, targets: list[Target], cfg: Config) ->
         workers = [simple_worker() for _ in range(jobs)]
 
     try:
-        # return_exceptions: en odpovedan delavec ne sme odnesti preostanka bloka,
-        # ker bi writer zaprl datoteko, medtem ko drugi se pisejo vanjo.
         for outcome in await asyncio.gather(*workers, return_exceptions=True):
             if isinstance(outcome, BaseException):
                 print(f"  delavec je odpovedal: {outcome}", file=sys.stderr)

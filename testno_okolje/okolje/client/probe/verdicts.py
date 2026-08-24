@@ -17,20 +17,16 @@ CLIENTS = ("curl", "chromium", "firefox")
 # Kar odjemalec poroca kot uporabljeni protokol, preslikano v nasi dve oznaki.
 MEASURED = {"2": "h2", "3": "h3", "h2": "h2", "h3": "h3"}
 
-# Chromium svoje strani z napako oznaci s tema dvema vozliscema: prvo je omrezna
-# napaka, drugo vmesna stran ob napaki potrdila.
+# Chromiumova stran z omrezno napako in vmesna stran ob napaki potrdila.
 CHROMIUM_ERROR_MARKS = ('id="main-frame-error"', 'id="interstitial-wrapper"')
 CHROMIUM_ERROR_CODE = re.compile(r"ERR_[A-Z0-9_]+")
 TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
-# Firefox ob napaki pristane na about:neterror ali about:certerror, razlog pa je v
-# parametru e= tega naslova.
+# Firefoxove strani z napako; razlog je v parametru e= naslova.
 FIREFOX_ERROR_PAGES = ("about:neterror", "about:certerror", "about:blocked")
 FIREFOX_ERROR_CODE = re.compile(r"[?&]e=([A-Za-z0-9_]+)")
 
-# Posrednik ob neuspeli povezavi navzgor sam vrne stran 502. Odjemalec jo dobi po
-# zahtevanem protokolu, zato bi brez tega pravila stela za delujoco stran, ceprav je
-# vsebina strani ni. Naslov te strani je oblike "502 Bad Gateway".
+# Stran 502, ki jo ob neuspeli povezavi navzgor vrne posrednik sam.
 SERVER_ERROR_TITLE = re.compile(r"^\s*(5\d\d)\b")
 
 CERT_SUBJECT = re.compile(r"^Subject:(.*)$", re.MULTILINE)
@@ -47,13 +43,9 @@ def origin_of(url: str) -> str:
     return f"https://{host}/" if host else ""
 
 
-# --- curl ---------------------------------------------------------------------
-
 def curl_argv(url: str, proto: str, *, connect_timeout: float, max_time: float,
               cacert: str | None = None, follow: bool = False) -> list[str]:
-    # --ipv4: postavitev je v celoti IPv4 (steering.p4 zavrze vse, kar ni IPv4), v
-    # odjemalcu pa je IPv6 izklopljen. Brez tega bi curl v drugacnem okolju poskusil
-    # se po IPv6 in bi se cakalo na iztek.
+    # --ipv4: steering.p4 zavrze vse, kar ni IPv4.
     argv = ["curl", "--silent", "--no-progress-meter", "--show-error", "--ipv4"]
     argv += ["--connect-timeout", f"{connect_timeout:g}", "--max-time", f"{max_time:g}"]
     argv += PROTO_FLAG[proto]
@@ -120,8 +112,6 @@ def curl_verdict(record: dict, proto: str) -> dict:
     return verdict
 
 
-# --- chromium -----------------------------------------------------------------
-
 def chromium_env(host: str, proto: str) -> dict[str, str]:
     """Okolje za browser/chromium.sh; zastavice ostanejo tam, na enem mestu.
     Vrata doda skripta sama, tako kot pri browse.sh."""
@@ -170,8 +160,6 @@ def chromium_verdict(dom: str, *, proto: str, returncode: int = 0) -> dict:
     verdict["protocol"] = proto
     return verdict
 
-
-# --- firefox ------------------------------------------------------------------
 
 def firefox_env(hosts: list[str], proto: str, *, marionette_port: int,
                 no_kyber: bool = False) -> dict[str, str]:

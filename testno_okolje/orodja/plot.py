@@ -36,8 +36,7 @@ TOPO_LABELS = {"C0": "C", "A0": "A", "B0": "B"}
 LINK_KEYS = ("rx_packets", "tx_packets", "rx_bytes", "tx_bytes")
 SWITCH_KEYS = counters.NAMES
 
-# Mehanizma, pri katerih promet obide posrednika in ju zato riše m7_prag; prag za črna
-# seznama je še vedno v prag.md, ker se izracuna iz istih cistih cen v m5 in ne stane meritve.
+# Mehanizma, pri katerih promet obide posrednika in ju zato meri m6_prag.
 MECHANISMS = ("ip_white", "sni_white")
 
 PAGE_WIDTH = 6.3
@@ -334,7 +333,7 @@ def bars_chart(cells: dict, stem: str, key: str, ylabel: str, out: Path,
     save(fig, stem, out)
 
 
-def search_chart(cells: dict, roots: dict, stem: str, out: Path) -> None:
+def search_chart(cells: dict, stem: str, out: Path) -> None:
     x = rates(cells)
     if not x:
         return
@@ -359,7 +358,7 @@ def search_chart(cells: dict, roots: dict, stem: str, out: Path) -> None:
                     ax.plot([n], [cell["requests_s"]], marker="o", markersize=9,
                             linestyle="none", color=colour,
                             markerfacecolor="none", markeredgecolor=colour)
-            found = max_rps(roots.get(topo, out.parent), topo, proto)
+            found = max_rps(out.parent, topo, proto)
             if found:
                 ax.axvline(found, linestyle="--", linewidth=1, color=colour)
         ax.set_xscale("log", base=2)
@@ -421,22 +420,15 @@ def validity_table(cells: dict) -> str:
 
 
 def render_oprema(cells: dict, out: Path, name: str) -> None:
-    search_chart(cells, {"C0": out.parent}, "m1_oprema", out)
-
-
-def render_prestrezanje(cells: dict, out: Path, name: str) -> None:
-    search_chart(cells, {"A0": out.parent}, "m2_prestrezanje", out)
+    search_chart(cells, "m1_oprema", out)
 
 
 def render_stikalo(cells: dict, out: Path, name: str) -> None:
-    """Krivulja za A pride iz m2, ker je tam ze izmerjena z istim iskanjem."""
-    source = out.parent.parent / "m2_prestrezanje"
-    merged = dict(cells) | collect(source)
-    search_chart(merged, {"A0": source, "B0": out.parent}, "m3_stikalo", out)
+    search_chart(cells, "m2_stikalo", out)
 
 
 def render_pravilnost(cells: dict, out: Path, name: str) -> None:
-    bars_chart(cells, "m4_pravilnost", "policy_ok_pct", "pravilnost (%)",
+    bars_chart(cells, "m3_pravilnost", "policy_ok_pct", "pravilnost (%)",
                out, axis(cells, 2))
 
     header = ["postavitev", "protokol", "vrsta prometa", "pravilnost (%)",
@@ -454,7 +446,7 @@ def render_pravilnost(cells: dict, out: Path, name: str) -> None:
 
 
 def render_vrste(cells: dict, out: Path, name: str) -> None:
-    bars_chart(cells, "m5_vrste", "cpu_ms_per_request_mitm",
+    bars_chart(cells, "m4_vrste", "cpu_ms_per_request_mitm",
                "CPU posrednika (ms/zahtevo)", out, axis(cells, 2))
 
 
@@ -462,24 +454,19 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
     root = out.parent
     protocols = axis(cells, 1)
     seen = {t.partition("_")[2] for t in axis(cells, 0) if "_" in t}
-    names = ["brez"] + [m for m in MODE_LABELS if m in seen]
-    base = {"A0": root.parent / "m2_prestrezanje", "B0": root.parent / "m3_stikalo"}
+    names = [m for m in MODE_LABELS if m in seen]
 
-    limits, pool = {}, dict(cells)
-    for source in base.values():
-        pool.update(collect(source))
+    limits = {}
     for topo in ("A0", "B0"):
         for proto in protocols:
             for mode in names:
-                where = base[topo] if mode == "brez" else root
-                key = topo if mode == "brez" else f"{topo}_{mode}"
-                found = max_rps(where, key, proto)
+                found = max_rps(root, f"{topo}_{mode}", proto)
                 if found:
                     limits[(topo, proto, mode)] = {"max_rps": found}
     if not limits:
         return
 
-    bars_chart(limits, "m6_zmogljivost", "max_rps",
+    bars_chart(limits, "m5_zmogljivost", "max_rps",
                "največja vzdržna hitrost (zahtev/s)", out, names)
 
     header = ["postavitev", "protokol", "vrsta prometa",
@@ -492,8 +479,7 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
                 found = (limits.get((topo, proto, mode)) or {}).get("max_rps")
                 if found is None:
                     continue
-                key = topo if mode == "brez" else f"{topo}_{mode}"
-                confirmed = pool.get((key, proto, "potrjeno")) or {}
+                confirmed = cells.get((f"{topo}_{mode}", proto, "potrjeno")) or {}
                 rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
                              flat(MODE_LABELS.get(mode, mode)), str(found),
                              show(confirmed, "goodput_mbps"),
@@ -526,43 +512,42 @@ def threshold_label(a_insp, a_pass, b_insp, b_pass) -> str:
     return "vedno" if b_insp < a_insp else "nikoli"
 
 
-def render_prag(cells: dict, out: Path, name: str) -> None:
-    pure = collect(out.parent.parent / "m5_vrste")
-    if not pure:
-        print("  m5_vrste ni izmerjen, zato modela praga ni mogoce izracunati")
-        return
-
+def anchors(cells: dict, proto: str, mechanism: str) -> dict:
+    """Cisti ceni pri niclemu in polnem obhodu, iz katerih tece modelna premica."""
     key = "cpu_ms_per_request_mitm"
-    protocols = axis(pure, 1)
-    drawn = [m for m in MECHANISMS if any(k[2] == m for k in pure)]
+    return {topo: ((cells.get((topo, proto, f"{mechanism}_p0")) or {}).get(key),
+                   (cells.get((topo, proto, f"{mechanism}_p100")) or {}).get(key))
+            for topo in ("A0", "B0")}
+
+
+def render_prag(cells: dict, out: Path, name: str) -> None:
+    key = "cpu_ms_per_request_mitm"
+    protocols = axis(cells, 1)
+    drawn = [m for m in MECHANISMS if mix_points(cells, m)]
     if not drawn:
         return
 
     fig, axes = figure(len(drawn), len(protocols), height=2.6)
     for row, mechanism in enumerate(drawn):
+        inner = [p for p in mix_points(cells, mechanism) if 0 < p < 100]
         for column, proto in enumerate(protocols):
             ax = axes[row][column]
             grid(ax, axis="both")
-            a_insp = (pure.get(("A0", proto, "brez")) or {}).get(key)
-            b_insp = (pure.get(("B0", proto, "brez")) or {}).get(key)
+            ends = anchors(cells, proto, mechanism)
             span = [i / 20 for i in range(21)]
-            for topo, insp in (("A0", a_insp), ("B0", b_insp)):
-                bypass = (pure.get((topo, proto, mechanism)) or {}).get(key)
+            for topo, (insp, bypass) in ends.items():
                 if insp is None or bypass is None:
                     continue
                 line = ax.plot(span, [(1 - p) * insp + p * bypass for p in span],
                                label=f"{topo_label(topo)} model")
-                points = mix_points(cells, mechanism)
-                xs = [p / 100 for p in points]
                 ys = [(cells.get((topo, proto, f"{mechanism}_p{p}")) or {}).get(key)
-                      for p in points]
+                      for p in inner]
                 if any(y is not None for y in ys):
-                    ax.plot(xs, ys, linestyle="none", marker="o",
+                    ax.plot([p / 100 for p in inner], ys, linestyle="none", marker="o",
                             color=line[0].get_color(),
                             label=f"{topo_label(topo)} izmerjeno")
 
-            point = crossing(a_insp, (pure.get(("A0", proto, mechanism)) or {}).get(key),
-                             b_insp, (pure.get(("B0", proto, mechanism)) or {}).get(key))
+            point = crossing(*ends["A0"], *ends["B0"])
             if point is not None and 0 <= point <= 1:
                 ax.axvline(point, linestyle=":", color="0.4")
                 ax.annotate(f"prag {point * 100:.0f} %", (point, 1.0),
@@ -577,35 +562,29 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
             plain_axis(ax)
     share_columns(axes)
     legend(fig, axes)
-    save(fig, "m7_prag", out)
+    save(fig, "m6_prag", out)
 
     header = ["protokol", "mehanizem", "A pregled", "A obhod", "B pregled", "B obhod", "prag"]
     rows = []
     for proto in protocols:
-        a_insp = (pure.get(("A0", proto, "brez")) or {}).get(key)
-        b_insp = (pure.get(("B0", proto, "brez")) or {}).get(key)
-        for mechanism in ("ip_white", "ip_black", "sni_white", "sni_black"):
-            if not any(k[2] == mechanism for k in pure):
-                continue
-            a_pass = (pure.get(("A0", proto, mechanism)) or {}).get(key)
-            b_pass = (pure.get(("B0", proto, mechanism)) or {}).get(key)
+        for mechanism in drawn:
+            ends = anchors(cells, proto, mechanism)
             rows.append([PROTO_LABELS.get(proto, proto),
                          flat(MODE_LABELS.get(mechanism, mechanism)),
                          *(f"{v:g}" if v is not None else "-"
-                           for v in (a_insp, a_pass, b_insp, b_pass)),
-                         threshold_label(a_insp, a_pass, b_insp, b_pass)])
+                           for v in (*ends["A0"], *ends["B0"])),
+                         threshold_label(*ends["A0"], *ends["B0"])])
     (out.parent / "prag.md").write_text(table(header, rows), encoding="utf-8")
     print(f"  {out.parent / 'prag.md'}")
 
 
 RENDERERS = {
     "m1_oprema": render_oprema,
-    "m2_prestrezanje": render_prestrezanje,
-    "m3_stikalo": render_stikalo,
-    "m4_pravilnost": render_pravilnost,
-    "m5_vrste": render_vrste,
-    "m6_zmogljivost": render_zmogljivost,
-    "m7_prag": render_prag,
+    "m2_stikalo": render_stikalo,
+    "m3_pravilnost": render_pravilnost,
+    "m4_vrste": render_vrste,
+    "m5_zmogljivost": render_zmogljivost,
+    "m6_prag": render_prag,
 }
 
 
@@ -614,7 +593,7 @@ def main(argv: list[str] | None = None) -> int:
     roots = [Path(a) for a in argv] or sorted(
         d for d in (OKOLJE / "out").glob("m[0-9]_*") if d.is_dir())
     if not roots:
-        raise SystemExit("plot.py: podaj imenik meritve, npr. okolje/out/m2_prestrezanje")
+        raise SystemExit("plot.py: podaj imenik meritve, npr. okolje/out/m2_stikalo")
 
     for root in roots:
         cells = collect(root)

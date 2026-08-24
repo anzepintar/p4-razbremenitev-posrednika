@@ -83,11 +83,6 @@ def lab():
     return TOPO
 
 
-@pytest.fixture(scope="session")
-def lists_dir():
-    return OKOLJE / "lists"
-
-
 P4 = OKOLJE / "switch" / "steering.p4"
 
 
