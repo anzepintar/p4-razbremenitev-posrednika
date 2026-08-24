@@ -2,12 +2,12 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-NAME=m7_zmogljivost
-PURPOSE="Najvecja vzdrzna hitrost po vrstah prometa. m1 in m3 iscejo mejo samo na prometu
-unknown, torej na prometu, ki ga stikalo ne more razbremeniti, m5 pa meri pri stalni
-obremenitvi pod nasicenjem, zato tam propustnost ne more biti razlicna. Ta meritev nasici
-obhodni promet in edina izrazi razbremenitev v zmogljivosti in ne v porabi procesorja.
-Meri se ip_white (cisti obhod) in sni_white (pri HTTP/2 obhoda ni, pri HTTP/3 je)."
+NAME=m6_zmogljivost
+PURPOSE="Najvecja hitrost prehoda prometa v A in B, za tri vrste prometa, ki lahko gre cez.
+m2 in m3 iscejo mejo samo na prometu unknown, torej na prometu, ki ga stikalo ne more
+razbremeniti, m5 pa meri pri stalni obremenitvi pod nasicenjem, zato tam propustnost ne more
+biti razlicna. Ta meritev nasici obhodni promet in edina izrazi razbremenitev v zmogljivosti
+in ne v porabi procesorja. Stolpec brez posegov se prevzame iz m2 in m3."
 
 . orodja/lib.sh
 

@@ -2,12 +2,11 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-NAME=m2_pravilnost
-PURPOSE="Ali je uveljavljanje politike pravilno - pri posredniku (ali fork se vedno ravna
-prav) in pri stikalu (ali je preserjanje prav implementirano) - v obeh protokolih. Za vsako
-vrsto prometa tece tok, ki je v celoti te vrste, pri nizki frekvenci, da nasicenje ne skrije
-napak. Sodba se sestavi iz treh neodvisnih virov: izida pri odjemalcu, stevcev stikala in
-dnevnika sej posrednika."
+NAME=m4_pravilnost
+PURPOSE="Ali je politika uveljavljena pravilno - pri posredniku in pri stikalu - v obeh
+protokolih. Za vsako vrsto prometa tece tok, ki je v celoti te vrste, pri nizki frekvenci, da
+nasicenje ne skrije napak. Sodba se sestavi iz treh neodvisnih virov: izida pri odjemalcu,
+stevcev stikala in dnevnika sej posrednika."
 
 . orodja/lib.sh
 

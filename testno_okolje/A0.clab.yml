@@ -47,4 +47,6 @@ topology:
 
   links:
     - endpoints: ["client:eth1", "mitm:eth1"]
+      mtu: 1500
     - endpoints: ["mitm:eth2", "server:eth1"]
+      mtu: 1500

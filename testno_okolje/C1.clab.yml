@@ -39,3 +39,4 @@ topology:
 
   links:
     - endpoints: ["client:eth1", "gateway:eth1"]
+      mtu: 1500

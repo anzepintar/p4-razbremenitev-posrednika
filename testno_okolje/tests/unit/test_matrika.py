@@ -213,15 +213,7 @@ class TestIzracunCelice:
         assert cell_run(tmp_path, blocked=True, stopped_share=1.0)["policy_ok_pct"] == 100.0
 
     def test_pravilnost_pade_ko_blokada_ne_ujame(self, tmp_path):
-        cell = cell_run(tmp_path, blocked=True, stopped_share=0.5)
-        assert cell["policy_ok_pct"] == 50.0
-        assert plot.below_floor(cell, "h2", "sni_black")
-
-    def test_prag_pravilnosti_je_nizji_tam_kjer_p4_ne_more_vsega(self, tmp_path):
-        cell = cell_run(tmp_path, blocked=True, stopped_share=0.97)
-        assert cell["policy_ok_pct"] == 97.0
-        assert not plot.below_floor(cell, "h2", "sni_black")
-        assert plot.below_floor(cell, "h3", "sni_black")
+        assert cell_run(tmp_path, blocked=True, stopped_share=0.5)["policy_ok_pct"] == 50.0
 
     def test_prazna_celica_ni_celica(self, tmp_path):
         (tmp_path / "meta.json").write_text(json.dumps({"duration_s": 10, "warmup_s": 0}))
@@ -264,6 +256,24 @@ class TestPragRentabilnosti:
     def test_enaka_prihranka_nimata_presecisca(self):
         assert plot.crossing(10.0, 4.0, 12.0, 6.0) is None
 
+    def test_prag_v_razponu_je_odstotek(self):
+        assert plot.threshold_label(10.0, 4.0, 12.0, 0.0) == "33.3 %"
+
+    def test_drazji_od_zacetka_do_konca_se_ne_splaca_nikoli(self):
+        # B0 zacne drazje in prihrani manj, zato presecisce pade pod nic, a je zunaj razpona.
+        assert plot.crossing(13.39, 3.5377, 14.474, 4.905) < 0
+        assert plot.threshold_label(13.39, 3.5377, 14.474, 4.905) == "nikoli"
+
+    def test_cenejsi_od_zacetka_se_splaca_vedno(self):
+        assert plot.threshold_label(12.0, 6.0, 10.0, 2.0) == "vedno"
+
+    def test_vzporedni_premici_locita_dobicek_od_izgube(self):
+        assert plot.threshold_label(12.0, 6.0, 10.0, 4.0) == "vedno"
+        assert plot.threshold_label(10.0, 4.0, 12.0, 6.0) == "nikoli"
+
+    def test_manjkajoca_cena_nima_oznake(self):
+        assert plot.threshold_label(10.0, None, 12.0, 0.0) == "-"
+
 
 class TestZbiranje:
 
@@ -275,6 +285,8 @@ class TestZbiranje:
 
     def test_hitrosti_in_delezi_se_prebereta_iz_imena(self):
         cells = {("A0", "h2", "r128"): {}, ("A0", "h2", "r16"): {},
-                 ("A0", "h2", "potrjeno"): {}, ("A0", "h2", "p50"): {}}
+                 ("A0", "h2", "potrjeno"): {}, ("A0", "h2", "sni_white_p50"): {},
+                 ("A0", "h2", "ip_white_p25"): {}}
         assert plot.rates(cells) == [16, 128]
-        assert plot.shares(cells) == [50]
+        assert plot.mix_points(cells, "sni_white") == [50]
+        assert plot.mix_points(cells, "ip_white") == [25]

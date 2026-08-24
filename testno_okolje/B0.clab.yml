@@ -63,6 +63,10 @@ topology:
 
   links:
     - endpoints: ["switch:eth1", "client:eth1"]
+      mtu: 1500
     - endpoints: ["switch:eth2", "server:eth1"]
+      mtu: 1500
     - endpoints: ["switch:eth3", "mitm:eth1"]
+      mtu: 1500
     - endpoints: ["switch:eth4", "mitm:eth2"]
+      mtu: 1500

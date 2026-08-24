@@ -220,20 +220,35 @@ razsodbo in pripenjanje združiti v en klic.
 ## Meritve
 
 Meritev je razbita na **sedem samostojnih programov**. Vsak ustreza enemu razdelku poročila,
-ima svoj namen, svoj izhod v `out/<ime>/` in traja okoli desetih minut. Poganjaš jih ločeno in
-ponoviš samo tistega, ki ga potrebuješ; vsak ob zagonu izpiše, kaj meri in zakaj.
+ima svoj namen, svoj izhod v `out/<ime>/` in eno samo sliko. Poganjaš jih ločeno in ponoviš
+samo tistega, ki ga potrebuješ; vsak ob zagonu izpiše, kaj meri in zakaj.
 
 Ponovitev je ena. Prečk napake zato ni — namesto njih povedo o uporabnosti točke varovala
 (pravilnost, delež napak, izraba odjemalca).
 
+| program | postavitev | kaj pove |
+| :--- | :--- | :--- |
+| `m1_oprema` | `C` | zgornja meja merilne opreme same, oba protokola |
+| `m2_prestrezanje` | `A` | cena prestrezanja pri HTTP/3 v primerjavi s HTTP/2 |
+| `m3_stikalo` | `A` in `B` | največja vzdržna hitrost prestrezanja v obeh protokolih |
+| `m4_pravilnost` | `A` in `B` | pravilnost uveljavljanja politike v obeh protokolih |
+| `m5_vrste` | `A` in `B` | vpliv stikala po posameznih vrstah prometa |
+| `m6_zmogljivost` | `A` in `B` | največja hitrost prehoda za tri vrste, ki gredo lahko čez |
+| `m7_prag` | `A` in `B` | delež obhodnega prometa, pri katerem je stikalo smiselno |
+
+Vrstni red ni poljuben: `m5` in `m7` vzameta obremenitev iz maksimumov, ki ju najdeta `m2` in
+`m3`, `m3` prevzame krivuljo za `A` iz `m2`, `m6` stolpec `brez posegov` iz `m2` in `m3`, `m7`
+pa modelske premice iz čistih cen v `m5`. Brez prednika vsak od njih še vedno teče, le da
+vzame rezervno hitrost (`RATE_H2`, `RATE_H3`) oziroma tisti del slike izpusti.
+
 ```sh
-./orodja/m1_posrednik.sh     # fork mitmproxy: HTTP/2 proti HTTP/3
-./orodja/m2_pravilnost.sh    # ali je politika uveljavljena pravilno
+./orodja/m1_oprema.sh        # zgornja meja brez vsega
+./orodja/m2_prestrezanje.sh  # fork mitmproxy: HTTP/2 proti HTTP/3
 ./orodja/m3_stikalo.sh       # kaj stane stikalo v poti
-./orodja/m4_referenca.sh     # zgornja meja brez vsega
+./orodja/m4_pravilnost.sh    # ali je politika uveljavljena pravilno
 ./orodja/m5_vrste.sh         # vpliv po vrstah prometa
-./orodja/m6_prag.sh          # pri katerem deležu se stikalo splača
-./orodja/m7_zmogljivost.sh   # največja vzdržna hitrost obhodnega prometa
+./orodja/m6_zmogljivost.sh   # največja vzdržna hitrost obhodnega prometa
+./orodja/m7_prag.sh          # pri katerem deležu se stikalo splača
 ./orodja/plot.py             # grafi in tabele iz vsega izmerjenega
 ```
 
@@ -242,22 +257,70 @@ pred celico, ogrevanje, zajem števcev in `nodestats`, ter zapis `meta.json` z n
 katerimi je celica res tekla. Vsaka celica je **en sam tok odjemalca**, ki je v celoti ene
 vrste prometa — tako je izmerjena cena te vrste čista.
 
-### Poglavje »Razvoj in testiranje rešitve«
+**`m1_oprema`** — postavitev `C0` je samo odjemalec in strežnik na neposredni povezavi.
+*Namen:* zgornja meja merilne opreme. Brez nje ni mogoče reči, ali je omejitev v rešitvi ali v
+odjemalcu; vse, kar dosežeta `A` in `B`, mora biti pod njo.
 
-**`m1_posrednik`** — kako se fork obnese pri HTTP/3 v primerjavi s HTTP/2. Postavitev `A0`,
+**`m2_prestrezanje`** — kako se fork obnese pri HTTP/3 v primerjavi s HTTP/2. Postavitev `A0`,
 promet samo iz skupine `unknown`, torej brez politike, da se meri čisto prestrezanje. *Namen:*
-ugotoviti ceno, ki jo prinese prestrezanje QUIC-a v primerjavi z TLS/TCP.
+ugotoviti ceno, ki jo prinese prestrezanje QUIC-a v primerjavi s TLS/TCP.
 
-**`m7_zmogljivost`** — največja vzdržna hitrost po vrstah prometa. `m1`, `m3` in `m4` iščejo mejo
-samo na prometu `unknown`, torej na prometu, ki ga stikalo ne more razbremeniti, `m5` pa meri pri
-stalni obremenitvi pod nasičenjem, zato tam propustnost ne more biti različna. Ta program nasiči
-obhodni promet (`ip_white` in `sni_white`) v `A0` in `B0`. *Namen:* razbremenitev izraziti v
-zmogljivosti in ne le v porabi procesorja. Izhod gre v `out/m7_zmogljivost/<topo>_<vrsta>/<proto>/`,
-vrste pa nastaviš s `CELL_MODES`.
+**`m3_stikalo`** — isti promet in isto iskanje kot `m2`, le postavitev `B0`. Razlika proti
+`m2` je natanko cena stikala v poti. *Namen:* ločiti ceno stikala od cene posrednika. Krivulja
+za `A` se na sliki prevzame iz `m2` in se ne meri znova.
+
+**`m4_pravilnost`** — ali je uveljavljanje pravilno pri posredniku in pri stikalu, v obeh
+protokolih. Nizka frekvenca (20 zahtev/s), da nasičenje ne skrije napak. Sodba se sestavi iz
+**treh neodvisnih virov**: izida pri odjemalcu (`policy_ok_pct`), števcev stikala (ali je bila
+izbrana pričakovana pot) in dnevnika sej posrednika (ali je sejo sploh videl). *Namen:*
+dokazati, da so IP beli in črni seznam ter domenski beli in črni seznam res implementirani
+pravilno, preden se karkoli meri.
+
+**Sto odstotkov ni pričakovana vrednost pri domenskem seznamu v TLS prek TCP.**
+Razčlenjevalnik v `steering.p4` je po naravi P4 omejen: prehodi le **šest razširitev**
+(`extension0` … `extension5`), preskočiti zna le telesa do `MAX_EXT_BODY` (256 B), ime pa sme
+biti dolgo največ `MAX_SNI_NAME` (63 B). Poleg tega vidi en sam paket, zato razdeljenega
+`ClientHello` ne more sestaviti. Odjemalec, ki postavi `server_name` za veliko razširitev —
+na primer `key_share` s hibridnim ključem — ali ga potisne v sedmo režo, gre mimo. Meje so
+pripete v `tests/integration/test_clienthello.py` (`test_sni_cez_zadnjo_rezo`,
+`test_velika_razsiritev_pred_sni_ustavi_razclenjevanje`), tako da test in program ne moreta
+raziti. Delež je zato odvisen od tega, kaj pošiljajo odjemalci, in je po literaturi za tak
+razčlenjevalnik nekje med 95 in 99 odstotki.
+
+V QUIC-u te meje ni: zunanja funkcija sestavi okvirje `CRYPTO` čez datagrame do
+`QUIC_MAX_CRYPTO` (16 kB), zato ime najde tudi tam, kjer ga razčlenjevalnik TCP ne bi. Pot
+QUIC je pri izluščanju imena torej **robustnejša** od poti TCP, kar je v nasprotju s prvim
+občutkom in je vredno omembe v poročilu.
+
+**`m5_vrste`** — `A0` in `B0` pri stalni obremenitvi, ki jo vzameta kot 70 % manjšega od
+maksimumov iz `m2` in `m3`, da obe postavitvi merita pri isti obremenitvi in obe varno pod
+nasičenjem, za vsako od šestih vrst prometa posebej. Meri se **breme posrednika: CPU deljen s
+številom poslanih zahtev, tudi tistih, ki posrednika sploh niso dosegle**. Propustnosti ta
+meritev ne riše: pri stalni obremenitvi pod nasičenjem obe postavitvi postrežeta vse ponujene
+zahteve, zato je prenesena količina lastnost obremenitve in ne postavitve. Zmogljivost meri
+`m6`. Prav ta delitelj je bistven — pove, koliko dela je posredniku prihranjeno na enoto
+ponujenega prometa, in ne le, kako hitro obdela to, kar vidi. *Namen:* pokazati, kje `B`
+pridobi, kje izgubi in koliko bremena se dejansko premakne.
+
+**`m6_zmogljivost`** — največja vzdržna hitrost po vrstah prometa. `m1`, `m2` in `m3` iščejo
+mejo samo na prometu `unknown`, torej na prometu, ki ga stikalo ne more razbremeniti, `m5` pa
+meri pri stalni obremenitvi pod nasičenjem, zato tam propustnost ne more biti različna. Ta
+program nasiči obhodni promet (`ip_white` in `sni_white`) v `A0` in `B0`, stolpec
+`brez posegov` pa prevzame iz `m2` in `m3`. *Namen:* razbremenitev izraziti v zmogljivosti in
+ne le v porabi procesorja. Izhod gre v `out/m6_zmogljivost/<topo>_<vrsta>/<proto>/`, vrste pa
+nastaviš s `CELL_MODES`.
+
+**`m7_prag`** — pri katerem deležu obhodnega prometa se stikalo splača. Iz čistih cen v `m5`
+se izračuna presečišče, ta meritev pa ga potrdi z mešanicami 25, 50 in 75 odstotkov. *Namen:*
+odgovoriti na vprašanje vpeljave, torej koliko prometa mora biti obhodnega, da se dodaten skok
+povrne. Merita se **oba bela seznama** (`MECHANISMS`, privzeto `ip_white sni_white`), ker se
+promet pri njiju res prestavi mimo posrednika; slika ima ploščo na mehanizem in protokol.
+`prag.md` pove prag tudi za oba črna seznama, ker se ta izračuna iz istih čistih cen v `m5` in
+ne stane meritve.
 
 ### Iskanje največje vzdržne hitrosti
 
-`m1`, `m3` in `m4` ne delajo rampe po sočasnosti, ampak **iščejo največjo hitrost brez
+`m1`, `m2`, `m3` in `m6` ne delajo rampe po sočasnosti, ampak **iščejo največjo hitrost brez
 izgube** po metodi iz RFC 2544 (§26.1). Rampa bi odgovarjala na »kakšna je krivulja«, vprašanje
 pa je »katera je največja vzdržna hitrost«; poleg tega rampa krmili sočasnost, pri kateri se
 zahteve kopičijo v vrsto, zato izguba sploh ni dobro definirana.
@@ -283,68 +346,11 @@ Potek je v `search_max` v `orodja/lib.sh`:
 
 To je 7–10 poskusov namesto petih grobih stopenj, poskusi pa se zgostijo prav okoli kolena,
 zato je tudi slika boljša. Rezultat je v `max.json`, vsi maksimumi skupaj pa v
-`out/m4_referenca/maksimumi.md`.
+`out/m6_zmogljivost/maksimumi_vrste.md`.
 
 Med poskusi se ogrevalni prehod in branje števcev stikala preskočita (`CELL_WARMUP_PASS=0`,
 `CELL_SWITCH=0`), sicer bi režija presegla sam poskus; `search_max` ogreje enkrat na začetku,
 števce pa prebere pri potrditvi.
-
-**`m2_pravilnost`** — ali je uveljavljanje pravilno pri posredniku in pri stikalu, v obeh
-protokolih. Nizka frekvenca, da nasičenje ne skrije napak. Sodba se sestavi iz **treh
-neodvisnih virov**: izida pri odjemalcu (`policy_ok_pct`), števcev stikala (ali je bila
-izbrana pričakovana pot) in dnevnika sej posrednika (ali je sejo sploh videl). *Namen:*
-dokazati, da so IP beli in črni seznam ter domenski beli in črni seznam res implementirani
-pravilno, preden se karkoli meri.
-
-**Sto odstotkov ni pričakovana vrednost pri domenskem seznamu v TLS prek TCP.**
-Razčlenjevalnik v `steering.p4` je po naravi P4 omejen: prehodi le **šest razširitev**
-(`extension0` … `extension5`), preskočiti zna le telesa do `MAX_EXT_BODY` (256 B), ime pa sme
-biti dolgo največ `MAX_SNI_NAME` (63 B). Poleg tega vidi en sam paket, zato razdeljenega
-`ClientHello` ne more sestaviti. Odjemalec, ki postavi `server_name` za veliko razširitev —
-na primer `key_share` s hibridnim ključem — ali ga potisne v sedmo režo, gre mimo. Meje so
-pripete v `tests/integration/test_clienthello.py` (`test_sni_cez_zadnjo_rezo`,
-`test_velika_razsiritev_pred_sni_ustavi_razclenjevanje`), tako da test in program ne moreta
-raziti. Delež je zato odvisen od tega, kaj pošiljajo odjemalci, in je po literaturi za tak
-razčlenjevalnik nekje med 95 in 99 odstotki.
-
-V QUIC-u te meje ni: zunanja funkcija sestavi okvirje `CRYPTO` čez datagrame do
-`QUIC_MAX_CRYPTO` (16 kB), zato ime najde tudi tam, kjer ga razčlenjevalnik TCP ne bi. Pot
-QUIC je pri izluščanju imena torej **robustnejša** od poti TCP, kar je v nasprotju s prvim
-občutkom in je vredno omembe v poročilu.
-
-Zaradi tega je prag pričakovane pravilnosti v `plot.py` odvisen od mehanizma: 95 % za domenski
-seznam v HTTP/2 in 99 % povsod drugod. **Šrafiran stolpec** pomeni »pravilnost pod pragom«, ne
-»neveljavno« — vrednost je vseeno izmerjena in se poroča, na sliki pa ima šrafura svojo
-postavko v legendi in prag je naveden v podnapisu.
-
-**`m3_stikalo`** — isti promet in isto iskanje kot `m1`, le postavitev `B0`. Razlika proti
-`m1` je natanko cena stikala v poti: koliko pade zgornja meja, koliko se podaljša rokovanje in
-koliko procesorja porabi stikalo samo. *Namen:* ločiti ceno stikala od cene posrednika.
-
-### Poglavje »Ovrednotenje rešitve«
-
-**`m4_referenca`** — postavitev `C0` je samo odjemalec in strežnik na neposredni povezavi.
-*Namen:* zgornja meja merilne opreme. Brez nje ni mogoče reči, ali je omejitev v rešitvi ali v
-odjemalcu; vse, kar dosežeta `A0` in `B0`, mora biti pod njo. Graf `m4_referenca` postavi
-`C0`, `A0` in `B0` enega ob drugega.
-
-**`m5_vrste`** — `A0` in `B0` pri stalni obremenitvi, ki jo vzameta kot 70 % manjšega od
-maksimumov iz `m1` in `m3`, da obe postavitvi merita pri isti obremenitvi in obe varno pod
-nasičenjem, za vsako od šestih vrst
-prometa posebej. Meri se **breme posrednika: CPU deljen s številom poslanih zahtev, tudi
-tistih, ki posrednika sploh niso dosegle**, ob tem pa še rokovanje. Propustnosti ta meritev ne
-riše: pri stalni obremenitvi pod nasičenjem obe postavitvi postrežeta vse ponujene zahteve,
-zato je prenesena količina lastnost obremenitve in ne postavitve. Zmogljivost meri `m7`. Prav ta delitelj je
-bistven — pove, koliko dela je posredniku prihranjeno na enoto ponujenega prometa, in ne le,
-kako hitro obdela to, kar vidi. *Namen:* pokazati, kje `B0` pridobi, kje izgubi in koliko
-bremena se dejansko premakne.
-
-**`m6_prag`** — pri katerem deležu obhodnega prometa se stikalo splača. Iz čistih cen v `m5`
-se izračuna presečišče, ta meritev pa ga potrdi z mešanicami 25, 50 in 75 odstotkov.
-*Namen:* odgovoriti na vprašanje vpeljave, torej koliko prometa mora biti obhodnega, da se
-dodaten skok povrne. Mehanizem mešanice nastaviš z `BYPASS` (privzeto `sni_white`); `plot.py`
-ga prebere iz `meta.json`, tako da se modelni premici vedno ujemata z izmerjenimi točkami.
-Za vidno presečišče pri HTTP/2 uporabi `BYPASS=ip_white`, ker `sni_white` tam obhoda ne zmore.
 
 ## Metrike
 
@@ -375,9 +381,12 @@ Kar je vredno vedeti o definicijah:
   p* = (a_pregled - b_pregled) / ((a_pregled - a_obhod) - (b_pregled - b_obhod))
   ```
 
-  Števec je pribitek, ki ga `B0` plača za dodaten skok, imenovalec razlika prihrankov. `p*` nad
-  1 pomeni, da se pri tem mehanizmu stikalo ne splača nikoli — tako se na primer obnese
-  domenski beli seznam v HTTP/2, kjer stikalo v TCP obhoda ne more izvesti.
+  Števec je pribitek, ki ga `B0` plača za dodaten skok, imenovalec razlika prihrankov. Kadar
+  `p*` pade zunaj razpona 0–1, se premici v njem sploh ne srečata in odloči razvrstitev pri
+  ničelnem obhodu: če je `B0` cenejši že tam, se splača **vedno**, sicer **nikoli**. Sam znak
+  `p*` tega ne pove — domenski beli seznam v HTTP/2 ima `p*` pod nič in se vseeno ne splača
+  nikoli, ker stikalo v TCP obhoda ne more izvesti in `B0` plača skok brez prihranka. Oznako
+  postavi `threshold_label` v `plot.py`, meje pa pripenja `TestPragRentabilnosti`.
 
 ## Veljavnost
 
@@ -385,7 +394,7 @@ Trditev velja le za točko, ki prestane vsa varovala; `veljavnost.md` jih zbere 
 
 | pogoj | prag | zakaj |
 | :--- | :--- | :--- |
-| `policy_ok_pct` | ≥ prag mehanizma (95 % za domenski seznam v HTTP/2, sicer 99 %) | sicer razlika ni v hitrosti, ampak v tem, kaj je bilo blokirano; taka celica dobi šrafiran stolpec |
+| `policy_ok_pct` | ≥ 99 %, pri domenskem seznamu v HTTP/2 ≥ 95 % | sicer razlika ni v hitrosti, ampak v tem, kaj je bilo blokirano; vrednost je v `veljavnost.md` in v sliki `m4_pravilnost` |
 | `errors_pct` | ≤ 1 % | točka nad tem meri iztek, ne zmogljivosti |
 | `cpu_util_client` | pod 0,8 | odjemalec zažene proces `curl` na zahtevo; če se nasiti prvi, se postavitvi ustavita pri isti vrednosti in primerjava ne pove nič. Taka točka dobi na grafu odprt znak |
 | `cpu_util_switch`, `cpu_util_mitm` | poročata se | pove, katera komponenta je bila ozko grlo |
@@ -396,34 +405,35 @@ zapisana kot rezultat.
 
 ## Grafi in rezultati
 
-Vsak program zapiše v `out/<ime>/`: slike v `graf/` kot `.pdf` in `.png`, tabelo celic v
-`results.md`, varovala v `veljavnost.md` in strojno berljiv `results.json`. Različica `.pdf` je
-vektorska, brez sivega napisa s pogoji in namenjena diplomi, `.png` pa ima napis in je za
-hitro branje. Postavitve se v legendah in tabelah imenujejo `A`, `B` in `C`, tako kot v diplomi. Slike so široke 6,3 palca,
-pisava 9 pt, barve privzete matplotlib; stolpčni grafi imajo ploščo na protokol, HTTP/2 nad
-HTTP/3.
+Vsak program zapiše v `out/<ime>/`: **eno samo sliko** v `graf/` kot `.pdf`, tabelo celic v
+`results.md`, varovala v `veljavnost.md` in strojno berljiv `results.json`. Slika je vektorska,
+brez podnapisa in namenjena neposredni vključitvi v diplomo; pogoji meritve sodijo v besedilo
+poleg nje, ne na sliko. Postavitve se v legendah in tabelah imenujejo `A`, `B` in `C`, vrste
+prometa pa `brez posegov`, `črni IP`, `beli IP`, `črni domenski`, `beli domenski` in
+`vsebinski črni`, tako kot v diplomi. Slike so široke 6,3 palca, pisava 9 pt, barve privzete
+matplotlib; stolpčni grafi imajo ploščo na protokol, HTTP/2 nad HTTP/3.
 
 Dogovori, ki veljajo povsod:
 
-- **obe plošči na sliki imata isto os y**, da sta neposredno primerljivi; pri `m1` in `m3` to
+- **obe plošči na sliki imata isto os y**, da sta neposredno primerljivi; pri `m2` in `m3` to
   pomeni, da krivulja HTTP/3 poteka nizko, ker je meja tam približno sedemkrat nižja; izjema je
-  `m6_prag`, kjer bi skupna os stisnila ploščo HTTP/2 in bi presečišče izginilo;
+  `m7_prag`, kjer je os skupna po stolpcu, torej med mehanizmoma istega protokola, ker bi
+  skupna os čez oba protokola stisnila ploščo HTTP/2 in bi presečišče izginilo;
 - **številke so brez znanstvenega zapisa**, število decimalk se izbere po velikosti;
-- **šrafiran stolpec** pomeni pravilnost pod pragom mehanizma in ima svojo postavko v legendi;
+- **kjer je obremenitev privzeta in ne iskana, piše v oklepaju v naslovu plošče** — na primer
+  `HTTP/2 (78 zahtev/s)`; pri iskanju je ni, ker se hitrost med poskusi menja;
 - **votel znak** na iskalnih grafih je padel poskus, **navpičnica** pa najdena največja
-  vzdržna hitrost;
-- **pod vsako sliko piše, pri kakšnih pogojih je nastala** — pri iskanju trajanje poskusa in
-  potrditve ter merilo, pri stalni obremenitvi pa hitrost, trajanje celice in ogrevanje.
+  vzdržna hitrost.
 
 | slika | iz | kaj kaže |
 | :--- | :--- | :--- |
-| `m1_iskanje`, `m1_rokovanje`, `m1_cpu` | m1 | dosežena proti ponujeni hitrosti z najdenim maksimumom, rokovanje in CPU posrednika |
-| `m2_pravilnost` + `pravilnost.md` | m2 | delež pravilnih razsodb po vrstah prometa in števci stikala |
-| `m3_iskanje`, `m3_rokovanje`, `m3_cpu` | m3 | isto kot m1, a s stikalom; CPU je od stikala |
-| `m4_referenca`, `m4_rokovanje` + `maksimumi.md` | m4 | `C0`, `A0` in `B0` eden ob drugem in tabela vseh maksimumov |
-| `m5_rokovanje`, `m5_breme` | m5 | po vrstah prometa; `m5_breme` je CPU posrednika na poslano zahtevo |
-| `m6_prag` + `prag.md` | m6 | breme proti deležu obhoda, presečišče in izmerjene točke |
-| `m7_meja`, `m7_iskanje` + `maksimumi_vrste.md` | m7 | največja vzdržna hitrost po vrstah prometa, `A` proti `B` |
+| `m1_oprema` | m1 | dosežena proti ponujeni hitrosti v `C` z najdenim maksimumom |
+| `m2_prestrezanje` | m2 | isto v `A`, HTTP/2 proti HTTP/3 |
+| `m3_stikalo` | m3 | isto, `A` in `B` ena ob drugi; `A` je prevzeta iz m2 |
+| `m4_pravilnost` + `pravilnost.md` | m4 | delež pravilnih razsodb po vrstah prometa in števci stikala |
+| `m5_vrste` | m5 | CPU posrednika na poslano zahtevo po vrstah prometa |
+| `m6_zmogljivost` + `maksimumi_vrste.md` | m6 | največja vzdržna hitrost po vrstah prometa, `A` proti `B` |
+| `m7_prag` + `prag.md` | m7 | breme proti deležu obhoda, presečišče in izmerjene točke, plošča na mehanizem in protokol |
 
 ## Pregled spleta
 
@@ -787,7 +797,7 @@ zamenjaš z `WEB_PASSWORD`). Za merjeni postavitvi pusti `mitmdump`, ker vmesnik
 ./orodja/start.sh B0                          # postavi (vsebinski filter je privzet)
 sudo clab destroy -t B0.clab.yml --cleanup    # poruši
 
-SUDO= ./orodja/m1_posrednik.sh                # brez sudo
+SUDO= ./orodja/m2_prestrezanje.sh            # brez sudo
 
 rm -rf okolje/out/*                           # počisti meritve
 rm -f okolje/pki/trust.pem
