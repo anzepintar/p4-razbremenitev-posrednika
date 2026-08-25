@@ -343,8 +343,6 @@ def search_chart(cells: dict, stem: str, out: Path) -> None:
         ax = axes[0][column]
         grid(ax, axis="both")
         seen = sorted({n for n in x if any((topo, proto, f"r{n}") in cells for topo in topos)})
-        if seen:
-            ax.plot(seen, seen, linestyle=":", color="0.5", label="ponujeno")
         for topo in topos:
             trials = [(n, cells[(topo, proto, f"r{n}")]) for n in x
                       if (topo, proto, f"r{n}") in cells]
