@@ -31,18 +31,15 @@ PROCESS_GRACE_S = 15.0
 
 @dataclass(frozen=True)
 class Target:
-    rank: int
     domain: str
     host: str
     url: str
-    categories: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> "Target":
-        return cls(rank=int(data.get("rank") or 0), domain=data["domain"],
+        return cls(domain=data["domain"],
                    host=data.get("host") or data["domain"],
-                   url=data.get("url") or f"https://{data['domain']}/",
-                   categories=data.get("categories") or "")
+                   url=data.get("url") or f"https://{data['domain']}/")
 
 
 @dataclass(frozen=True)
@@ -64,11 +61,9 @@ def row(target: Target, client: str, proto: str, verdict: dict,
         "ts": round(ts, 6),
         "client": client,
         "proto": proto,
-        "rank": target.rank,
         "domain": target.domain,
         "host": target.host,
         "url": target.url,
-        "categories": target.categories,
         "elapsed_ms": round(elapsed_ms, 1),
         **verdict,
     }

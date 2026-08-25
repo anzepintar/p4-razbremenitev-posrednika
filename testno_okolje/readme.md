@@ -94,46 +94,67 @@ Ime strežnika iz prometa TCP razčleni razčlenjevalnik v `okolje/switch/steeri
 Vsak program zapiše v `okolje/out/<ime>/` sliko v `graf/`, `results.md`, `veljavnost.md` in
 `results.json`; nariše jih `./orodja/plot.py okolje/out/<ime>`, ki ga pokličejo sami.
 `m1`, `m2` in `m5` iščejo največjo vzdržno hitrost brez izgube (podvajanje, nato bisekcija,
-na koncu potrditveni tek), `m4` in `m6` pa merita pri stalni obremenitvi, ki je 70 % manjšega
-od maksimumov iz `m2`, brez njega pa `RATE_H2` oziroma `RATE_H3`.
+na koncu potrditveni tek), `m4` in `m6` pa merita pri stalni obremenitvi `RATE_H2` oziroma
+`RATE_H3`. Ta je izbrana pod maksimumoma iz `m2`. Če ni, program to izpiše kot opozorilo.
 
 | spremenljivka | privzeto | kaj je |
 | :--- | :--- | :--- |
-| `DURATION`, `WARMUP` | 20, 5 | trajanje celice in ogrevanje v sekundah |
+| `DURATION`, `WARMUP` | 20, 0 | trajanje celice in odbitek na začetku v sekundah |
+| `WARMUP_REQUESTS` | 100, v `m4` in `m6` 300 | zahteve ogrevalnega teka pred celico |
 | `SEARCH_START`, `SEARCH_MAX`, `SEARCH_TOLERANCE` | 8, 512, 5 | meji iskanja in razmik bisekcije |
-| `RATE_H2`, `RATE_H3` | 80, 10 | rezervna obremenitev, kadar `m2` še ni tekel |
+| `RATE_H2`, `RATE_H3` | 80, 10 | stalna obremenitev v `m4` in `m6` v zahtevah/s |
 | `CELL_MODES` | `brez ip_white sni_white` | vrste prometa v `m5` |
 | `MECHANISMS`, `SHARES` | `ip_white sni_white`, `0 25 50 75 100` | mehanizmi in deleži obhoda v `m6` |
 | `SUDO` | `sudo` | prazno, kadar `clab` ne potrebuje pravic |
 
 ## Pregled spleta
 
-Sto najbolj obiskanih domen po Cloudflare Radarju obiščejo curl, chromium in firefox, vsak
-po HTTP/2 in HTTP/3. Program najprej izmeri izhodišče v `C1`, nato isti nabor pelje skozi `B1`.
+Pregled najprej iz izvoza Cloudflare Radarja izbere nabor, nato iz njega vzame vzorec
+stotih domen in ga obišče s curl, chromium in firefox, vsakega po HTTP/2 in HTTP/3. Vzorec
+je iz domen, ki delujejo po obeh protokolih, in ga določa seme, zato vsi bloki obeh
+postavitev vidijo iste domene.
 
 ```sh
-./orodja/splet.sh                  # cel pregled, okoli pol ure do ure
-LIMIT=5 ./orodja/splet.sh          # samo prvih pet domen
-CSV=<pot> ./orodja/splet.sh        # drug nabor
+./orodja/splet.sh                  # izbor in pregled vzorca stotih domen
+LIMIT=5 SWEEP_CLIENTS=curl ./orodja/splet.sh
+
+./orodja/splet_nabor.sh            # samo izbor, za pogled v osip nabora
+SELECT_LIMIT=20 ./orodja/splet_nabor.sh
 ```
+
+Datotek ne urejaj med tekom. Lupina skripto bere sproti, zato bi jo urejanje na mestu
+pokvarilo sredi teka; oba programa imata potek v funkciji `main`, kar to prepreči.
+
+Izbor je del pregleda in teče v isti postavitvi `C1`, z istimi izteki in istim merilom, zato
+med izborom in meritvijo ni odstopanj. Ima dva koraka. Prvi poišče končnega gostitelja
+domene, pri čemer ob neuspehu poskusi še predpono `www`. Drugi pri vsakem dosegljivem
+gostitelju preveri oba protokola. Izid je `okolje/splet_nabor.json`, kopija pa ostane pri
+rezultatih teka. Program `splet_nabor.sh` opravi isti izbor sam zase, kadar te zanima le
+osip nabora.
 
 | spremenljivka | privzeto | kaj je |
 | :--- | :--- | :--- |
-| `CSV` | `../testni_podatki/cloudflare-radar_top-100-domains_20260822.csv` | nabor domen |
+| `CSV` | `../testni_podatki/cloudflare-radar_top-1000-domains_20260701-20260731.csv` | izvoz domen |
+| `NABOR` | `okolje/splet_nabor.json` | kam se zapiše izbrani nabor |
 | `SWEEP_CLIENTS`, `SWEEP_PROTOS` | `curl chromium firefox`, `h2 h3` | kaj se pregleda |
-| `LIMIT`, `RETRIES`, `KEEP` | 0, 1, 1 | koliko domen (0 je vse), ponovitve, pusti `B1` pokoncno |
-| `CONNECT_TIMEOUT`, `MAX_TIME`, `PAGE_TIMEOUT` | 5, 20, 30 | izteki v sekundah |
+| `SAMPLE`, `SEED` | 100, 1234 | velikost vzorca pregleda (0 je cel nabor) in seme |
+| `SELECT_LIMIT`, `SELECT_JOBS` | 0, 64 | koliko domen gre v izbor (0 je vse) in vzporednost izbora |
+| `LIMIT`, `RETRIES`, `KEEP` | 0, 1, 1 | koliko domen vzorca (0 je vse), ponovitve, pusti `B1` pokoncno |
+| `CONNECT_TIMEOUT`, `MAX_TIME` | 10, 10 | izteka curl v sekundah, ista pri izboru in pregledu |
+| `PAGE_TIMEOUT` | 5 | iztek brskalnika v sekundah |
 | `NO_KYBER` | 0 | firefoxu vzame hibridni ključ; diagnostika, ne meritev |
 
-Izhod je v `okolje/out/splet/`: `results.md` (delovanje strani in razsodbe stikala),
-`nedelujoce.md` (samo strani, ki delujejo v `C1` in ne v `B1`), `results.json`, `cilji.json`
-(končni gostitelji) in `<postavitev>/probes_<odjemalec>_<protokol>.jsonl`.
+Izbor pusti ob naboru še `apex.json`, kjer so z razlogom tudi domene, ki so iz nabora
+izpadle. Izhod pregleda je v `okolje/out/splet/`: `results.md` (izbor,
+delovanje strani, strani samo po HTTP/2 in razsodbe stikala), `nedelujoce.md` (samo strani,
+ki delujejo v `C1` in ne v `B1`), `results.json`, `nabor.json` in
+`<postavitev>/probes_<odjemalec>_<protokol>.jsonl`.
 
 ## Testi
 
 | nivo | kaj potrebuje | koliko |
 | :--- | :--- | ---: |
-| `unit` | samo Python | 172 |
+| `unit` | samo Python | 181 |
 | `integration` | bere `steering.p4`, za QUIC še sliko `p4-switch` | 27 |
 | `e2e` | tekočo postavitev `B0` | 31 |
 

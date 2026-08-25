@@ -257,22 +257,106 @@ max_rps() {
 	./orodja/maxrps.py "$OUT/$1/$2/$3"
 }
 
-# Obremenitev je 70 % manjsega od maksimumov, ki ju je nasel m2.
+# Izbor nabora za pregled spleta. Tece v tekoci postavitvi in z istimi izteki kot pregled,
+# zato med izborom in meritvijo ni razlike ne v okolju ne v casu ne v merilu. Prvi korak
+# poisce koncnega gostitelja apex domene, drugi pri vsakem dosegljivem preveri oba protokola.
+#
+# select_nabor <postavitev> <oddaljeni imenik>
+select_nabor() {
+	local topo="$1" remote="$2"
+	local csv="${CSV:-../testni_podatki/cloudflare-radar_top-1000-domains_20260701-20260731.csv}"
+	local nabor="${NABOR:-okolje/splet_nabor.json}"
+	local limit="${SELECT_LIMIT:-0}" jobs="${SELECT_JOBS:-64}" retries="${RETRIES:-1}"
+	local connect="${CONNECT_TIMEOUT:-10}" maxtime="${MAX_TIME:-10}"
+
+	[ -f "$csv" ] || {
+		echo "$NAME: izvoza ni v '$csv'; podaj ga s CSV=<pot>" >&2
+		return 1
+	}
+
+	python3 - "$csv" "$RESULTS/domene.json" <<'PY'
+import csv, json, re, sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+stamps = re.findall(r"\d{8}", source.name)
+seen, domains = set(), []
+for row in csv.DictReader(source.open(encoding="utf-8-sig")):
+    domain = (row.get("domain") or "").strip().lower()
+    if domain and domain not in seen:
+        seen.add(domain)
+        domains.append({"domain": domain})
+
+Path(sys.argv[2]).write_text(json.dumps({
+    "source": source.name,
+    "captured": "/".join(f"{s[:4]}-{s[4:6]}-{s[6:]}" for s in stamps) or None,
+    "domains": sorted(domains, key=lambda item: item["domain"]),
+}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(f"    izvoz: {len(domains)} domen iz {source.name}")
+PY
+
+	docker exec "clab-$topo-client" python3 -m probe --mode select \
+		--domains "$remote/domene.json" \
+		--out "$remote/nabor.json" \
+		--apex-out "$remote/apex.json" \
+		--limit "$limit" --jobs "$jobs" --retries "$retries" \
+		--connect-timeout "$connect" --max-time "$maxtime" 2>&1 | sed 's/^/    /'
+
+	cp -f "$RESULTS/nabor.json" "$nabor"
+
+	python3 - "$nabor" "$RESULTS/apex.json" <<'PY'
+import json, sys
+from pathlib import Path
+
+stats = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["stats"]
+print(f"    izvoz {stats['domains']} domen, dosegljivih {stats['reachable']}, "
+      f"HTTP/2 {stats['h2']}, HTTP/3 {stats['h3']}, oba {stats['both']}, "
+      f"samo HTTP/2 {stats['h2_only']}, samo HTTP/3 {stats['h3_only']}")
+print(f"    nabor: {stats['selected']} domen v {sys.argv[1]}")
+print(f"    prvi korak z razlogi osipa: {sys.argv[2]}")
+PY
+}
+
+# Nobena domena nabora ne sme biti na laboratorijskih seznamih iz okolje/lists.
+check_lists() {
+	python3 - "$RESULTS/nabor.json" <<'PY'
+import json, sys
+from pathlib import Path
+
+sys.path.insert(0, "okolje")
+import sni
+
+domains = [item["domain"] for item in
+           json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["targets"]]
+lists = sni.load("domain")
+hits = sorted({
+    domain for domain in domains
+    for name in lists["black"] + lists["white"]
+    if domain == name or (name.startswith(".") and domain.endswith(name))
+})
+if hits:
+    print(f"    OPOZORILO: {len(hits)} domen nabora je na laboratorijskih seznamih: "
+          f"{', '.join(hits[:5])}")
+PY
+}
+
+# Obremenitev je stalna in v obeh postavitvah enaka. Vrednosti sta izpeljani iz maksimumov,
+# ki ju je nasel m2, in izbrani pod manjsim od njiju.
 RATE_H2="${RATE_H2:-80}"
 RATE_H3="${RATE_H3:-10}"
 
 load_rate() {
-	local proto="$1" a b picked
-	a="$(max_rps m2_stikalo A0 "$proto")"
-	b="$(max_rps m2_stikalo B0 "$proto")"
-	if [ -n "$a" ] && [ -n "$b" ]; then
-		picked=$(python3 -c "print(max(1, int(min($a, $b) * 0.7)))")
-		echo "$picked"
-		return
-	fi
+	local proto="$1" a b lower picked
 	case "$proto" in
 	h3) picked="$RATE_H3" ;;
 	*) picked="$RATE_H2" ;;
 	esac
+	a="$(max_rps m2_stikalo A0 "$proto")"
+	b="$(max_rps m2_stikalo B0 "$proto")"
+	if [ -n "$a" ] && [ -n "$b" ]; then
+		lower=$((a < b ? a : b))
+		[ "$picked" -ge "$lower" ] &&
+			echo "    opozorilo: $picked zahtev/s ni pod maksimumom m2 ($a in $b)" >&2
+	fi
 	echo "$picked"
 }

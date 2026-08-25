@@ -6,12 +6,16 @@ NAME=m6_prag
 PURPOSE="Pri kolikem delezu obhodnega prometa je stikalo smiselno. Promet je mesanica
 pregledanega (unknown) in obhodnega, posebej za beli IP in beli domenski seznam. Delez 0 in
 100 odstotkov da cisti ceni, iz katerih se izpelje modelna premica, delezi 25, 50 in 75
-odstotkov pa jo preverijo. Vse tocke so tako iz istega teka."
+odstotkov pa jo preverijo. Vse tocke so tako iz istega teka. Celica ima iste parametre kot v
+m4, zato sta cisti ceni pri 0 in 100 odstotkih primerljivi s stolpci iz m4."
+
+# Trije obhodi nabora, da ogrevanje pokrije tudi domene, ki jih nakljucni izbor sicer izpusti.
+WARMUP_REQUESTS="${WARMUP_REQUESTS:-300}"
 
 . orodja/lib.sh
 
 DURATION="${DURATION:-20}"
-WARMUP="${WARMUP:-5}"
+WARMUP="${WARMUP:-0}"
 CELL_WORKERS=64
 MECHANISMS="${MECHANISMS:-ip_white sni_white}"
 SHARES="${SHARES:-0 25 50 75 100}"

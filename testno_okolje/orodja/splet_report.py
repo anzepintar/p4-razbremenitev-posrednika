@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Tabele iz pregleda sto najbolj obiskanih strani.
+"""Tabele iz pregleda pravega spleta.
 
 Bere obe fazi pregleda (C1 kot izhodisce in B1 kot merjeno postavitev) ter iz njiju
 sestavi tabele za poglavje o pravem prometu in seznam strani, ki delujejo brez
 prestrezanja in z njim ne. Grafov ne rise, ker so izidi stevni in ne zvezni.
+
+Vsak protokol ima svoj nabor, zato so imenovalci loceni. Delez nabora se meri proti
+stevilu dosegljivih domen iz izbora, ki ga zapise splet_nabor.sh.
 
     ./orodja/splet_report.py okolje/out/splet
 """
@@ -32,6 +35,11 @@ SWITCH_COLUMNS = ("sni_seen", "sni_blocked", "sni_white", "quic",
 
 def pct(part: int, whole: int) -> str:
     return f"{number(part / whole * 100)} %" if whole else "-"
+
+
+def probed(matrix: dict) -> int:
+    """Velikost vzorca. Vsi bloki vidijo iste domene, zato je to ena sama stevilka."""
+    return max((cell["probed"] for cell in matrix.values()), default=0)
 
 
 def load_probes(root: Path, phase: str) -> dict[tuple[str, str, str], dict]:
@@ -106,13 +114,61 @@ def main_table(matrix: dict) -> str:
     return table(header, rows)
 
 
-def coverage_table(matrix: dict, reachable: int) -> str:
-    """Koliksen delez nabora sploh odgovori po posameznem protokolu."""
-    header = ["odjemalec", "protokol", "dosegljivih", f"deluje v {BASE}", "delez nabora"]
-    rows = [[client, PROTO_LABELS.get(proto, proto), str(reachable),
-             str(cell["base_ok"]), pct(cell["base_ok"], reachable)]
+def coverage_table(matrix: dict) -> str:
+    """Koliksen delez vzorca res deluje v izhodiscu. Vzorec je izbran s curlom, zato
+    brskalnik lahko pri isti domeni razsodi drugace."""
+    header = ["odjemalec", "protokol", "v vzorcu", f"deluje v {BASE}", "delez vzorca"]
+    rows = [[client, PROTO_LABELS.get(proto, proto), str(cell["probed"]),
+             str(cell["base_ok"]), pct(cell["base_ok"], cell["probed"])]
             for (client, proto), cell in sorted(matrix.items())]
     return table(header, rows)
+
+
+def nabor_table(stats: dict) -> str:
+    """Osip izbora, od izvoza do nabora. Vir stevilk o podpori za QUIC."""
+    if not stats:
+        return "Izbora ni; ali je bil nabor pripravljen s splet_nabor.sh?\n"
+    total, reachable = stats.get("domains") or 0, stats.get("reachable") or 0
+    rows = [
+        ["domen v izvozu", str(total), "-"],
+        ["dosegljivih na koncnem gostitelju", str(reachable), pct(reachable, total)],
+        ["deluje po HTTP/2", str(stats.get("h2") or 0), pct(stats.get("h2") or 0, reachable)],
+        ["deluje po HTTP/3", str(stats.get("h3") or 0), pct(stats.get("h3") or 0, reachable)],
+        ["deluje po obeh", str(stats.get("both") or 0), pct(stats.get("both") or 0, reachable)],
+        ["samo po HTTP/2", str(stats.get("h2_only") or 0),
+         pct(stats.get("h2_only") or 0, reachable)],
+        ["samo po HTTP/3", str(stats.get("h3_only") or 0),
+         pct(stats.get("h3_only") or 0, reachable)],
+    ]
+    return table(["korak izbora", "domen", "delez dosegljivih"], rows)
+
+
+def only_h2(measured: dict) -> dict[str, list[dict]]:
+    """Domene, ki v merjeni postavitvi delujejo po HTTP/2 in ne po HTTP/3.
+
+    Steje le domene, ki so v obeh naborih; sicer bi bila v izidu vsaka stran, ki QUIC
+    sploh ne ponuja. Razlika je zato cena prestrezanja prometa QUIC in ne lastnost
+    strani.
+    """
+    found: dict[str, list[dict]] = {}
+    for (client, proto, domain), item in measured.items():
+        if proto != "h3" or (client, "h2", domain) not in measured:
+            continue
+        if measured[(client, "h2", domain)].get("ok") and not item.get("ok"):
+            found.setdefault(client, []).append(item)
+    return {client: sorted(items, key=lambda item: item.get("domain") or "")
+            for client, items in found.items()}
+
+
+def only_h2_table(measured: dict) -> str:
+    found = only_h2(measured)
+    if not found:
+        return ("Ni takih strani: kar v merjeni postavitvi dela po HTTP/2, dela tudi "
+                "po HTTP/3.\n")
+    rows = [[client, item.get("domain") or "-", item.get("error") or "-",
+             (item.get("message") or "-").replace("|", "/")[:80]]
+            for client, items in sorted(found.items()) for item in items]
+    return table(["odjemalec", "domena", "napaka pri HTTP/3", "sporocilo"], rows)
 
 
 def reasons_table(matrix: dict, field: str, caption: str) -> str:
@@ -173,16 +229,14 @@ def proxy_saw(index: dict, item: dict) -> str:
 
 def broken_report(root: Path, matrix: dict) -> str:
     index = proxy_index(root)
-    header = ["rang", "domena", "gostitelj", "kategorija", "odjemalec", "protokol",
+    header = ["domena", "gostitelj", "odjemalec", "protokol",
               "napaka", "sporocilo", "izdajatelj", "posrednik videl"]
     rows = []
     for (client, proto), cell in sorted(matrix.items()):
-        for item in sorted(cell["broken"], key=lambda row: row.get("rank") or 0):
+        for item in sorted(cell["broken"], key=lambda row: row.get("domain") or ""):
             rows.append([
-                str(item.get("rank") or "-"),
                 item.get("domain") or "-",
                 item.get("host") or "-",
-                (item.get("categories") or "-").replace("|", "/"),
                 client,
                 PROTO_LABELS.get(proto, proto),
                 item.get("error") or "-",
@@ -216,22 +270,29 @@ def report(root: Path) -> int:
         print(f"splet_report: v {root / MEASURED} ni pregledov", file=sys.stderr)
         return 1
 
-    targets = read_json(root / "cilji.json").get("targets") or []
-    reachable = sum(1 for item in targets if item.get("reachable"))
+    nabor = read_json(root / "nabor.json")
+    stats = nabor.get("stats") or {}
     matrix = cells(base, measured)
 
     parts = [
-        "# Pregled sto najbolj obiskanih strani", "",
-        f"Nabor: {read_json(root / 'domene.json').get('source') or '-'}, "
-        f"{len(targets)} domen, od tega {reachable} dosegljivih.",
+        "# Pregled pravega spleta", "",
+        f"Izvor: {nabor.get('source') or '-'}, izbor je zapisal splet_nabor.sh.",
         f"Izhodisce je postavitev {BASE} (brez stikala in posrednika), merjena postavitev "
-        f"je {MEASURED}.", "",
+        f"je {MEASURED}.",
+        f"Pregledan je vzorec {probed(matrix)} domen, ki v izboru delujejo po obeh "
+        "protokolih.", "",
+        "## Izbor nabora", "",
+        nabor_table(stats), "",
         "## Delovanje strani", "",
         f"Imenovalec je stevilo strani, ki delujejo ze v {BASE}; stran, ki ne dela niti "
         "brez", "prestrezanja, v odstotek ne steje.", "",
         main_table(matrix), "",
-        "## Pokritost nabora", "",
-        coverage_table(matrix, reachable), "",
+        "## Vzorec v izhodiscu", "",
+        coverage_table(matrix), "",
+        f"## Deluje po HTTP/2 in ne po HTTP/3 v {MEASURED}", "",
+        f"Domene iz obeh naborov, pri katerih je v {MEASURED} uspel le HTTP/2. Razlika je "
+        "cena", "prestrezanja prometa QUIC in ne lastnost strani.", "",
+        only_h2_table(measured), "",
         "## Razlogi", "",
         reasons_table(matrix, "broken",
                       f"Zakaj stran, ki dela v {BASE}, ne dela v {MEASURED}:"), "",
@@ -243,14 +304,17 @@ def report(root: Path) -> int:
     (root / "results.md").write_text("\n".join(parts), encoding="utf-8")
     (root / "nedelujoce.md").write_text(broken_report(root, matrix), encoding="utf-8")
     (root / "results.json").write_text(json.dumps({
-        "source": read_json(root / "domene.json"),
-        "reachable": reachable,
+        "source": nabor.get("source"),
+        "stats": stats,
+        "sample": probed(matrix),
         "cells": {f"{client}/{proto}": {
             "probed": cell["probed"], "base_ok": cell["base_ok"],
             "measured_ok": cell["measured_ok"],
             "broken": [item.get("domain") for item in cell["broken"]],
             "recovered": [item.get("domain") for item in cell["recovered"]],
         } for (client, proto), cell in sorted(matrix.items())},
+        "only_h2": {client: [item.get("domain") for item in items]
+                    for client, items in only_h2(measured).items()},
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     for (client, proto), cell in sorted(matrix.items()):
@@ -258,6 +322,9 @@ def report(root: Path) -> int:
               f"{cell['measured_ok']} od {cell['base_ok']} "
               f"({pct(cell['measured_ok'], cell['base_ok'])}), "
               f"ne dela {len(cell['broken'])}")
+    for client, items in sorted(only_h2(measured).items()):
+        print(f"  {client}: v {MEASURED} dela po HTTP/2 in ne po HTTP/3, "
+              f"takih domen: {len(items)}")
     print(f"  {root / 'results.md'}, nedelujoce.md, results.json")
     return 0
 

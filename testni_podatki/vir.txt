@@ -11,6 +11,16 @@
 
 https://lnu-phish.github.io/
 
+No-screenshots (550MB) dataset
+
+direkten url:
+https://1drv.ms/u/s!AiRbxLvsK4bMojXskQc3HktxlAX7?e=eezuf7
 
 
-Drugo pa cloudflare radar top 100 domains
+
+Drugo pa cloudflare radar top 1000 domains
+
+https://radar.cloudflare.com/domains
+
+direkten url:
+https://radar.cloudflare.com/charts/TopDomainsTable/attachment?id=2871&value=1000&dateStart=2026-08-17&dateEnd=2026-08-24

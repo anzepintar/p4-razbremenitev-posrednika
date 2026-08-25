@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import plot
 import splet_report
 from probe import verdicts
-from probe.__main__ import with_retry
+from probe.__main__ import load_targets, nabor, with_retry
 
 CERTS = (
     "Subject:CN = cloudflare.com\n"
@@ -160,7 +161,7 @@ class TestNaslovi:
 
 
 def probe(client, proto, domain, ok, error=None):
-    return {"client": client, "proto": proto, "domain": domain, "rank": 1,
+    return {"client": client, "proto": proto, "domain": domain,
             "host": domain, "ok": ok, "error": error}
 
 
@@ -283,3 +284,93 @@ class TestNapakaStreznika:
         assert splet_report.recheck(vrstica)["ok"] is False
         cela = {"ok": True, "http_code": 200, "title": "Cloudflare"}
         assert splet_report.recheck(cela)["ok"] is True
+
+
+def apex(domain, reachable=True):
+    return {"domain": domain, "reachable": reachable, "via": "apex",
+            "host": domain, "url": f"https://{domain}/",
+            "http_code": 200 if reachable else None,
+            "error": None if reachable else "curl:6", "message": None}
+
+
+def check(h2, h3):
+    return {"h2": {"ok": h2, "protocol": "h2" if h2 else None, "ms": 10,
+                   "error": None if h2 else "curl:28", "message": None},
+            "h3": {"ok": h3, "protocol": "h3" if h3 else None, "ms": 10,
+                   "error": None if h3 else "curl:28", "message": None}}
+
+
+class TestIzborNabora:
+    """Vsak protokol ima svoj nabor, ker ju splet ne ponuja v enaki meri."""
+
+    def sestavljen(self):
+        return nabor(
+            {"source": "izvoz.csv"},
+            [apex("oba.com"), apex("samo2.com"), apex("samo3.com"),
+             apex("nic.com"), apex("mrtva.com", reachable=False)],
+            {"oba.com": check(True, True), "samo2.com": check(True, False),
+             "samo3.com": check(False, True), "nic.com": check(False, False)},
+        )
+
+    def test_v_naboru_je_le_kar_kje_deluje(self):
+        domene = [item["domain"] for item in self.sestavljen()["targets"]]
+        assert domene == ["oba.com", "samo2.com", "samo3.com"]
+
+    def test_statistika_loci_protokola(self):
+        stats = self.sestavljen()["stats"]
+        assert stats["domains"] == 5
+        assert stats["reachable"] == 4
+        assert (stats["h2"], stats["h3"], stats["both"]) == (2, 2, 1)
+        assert (stats["h2_only"], stats["h3_only"]) == (1, 1)
+        assert stats["selected"] == 3
+
+    def test_izvor_ostane_v_naboru(self):
+        assert self.sestavljen()["source"] == "izvoz.csv"
+
+    def test_vzorec_je_iz_domen_ki_delujejo_po_obeh(self, tmp_path):
+        """Vzorec mora biti primerljiv med protokoloma, zato so v njem le domene,
+        ki v izboru delujejo po obeh."""
+        path = tmp_path / "nabor.json"
+        path.write_text(json.dumps(self.sestavljen()), encoding="utf-8")
+        for proto in ("h2", "h3"):
+            vzorec = load_targets(path, 0, proto, sample=2, seed=1234)
+            assert [cilj.domain for cilj in vzorec] == ["oba.com"]
+
+    def test_vzorec_je_pri_istem_semenu_vedno_isti(self, tmp_path):
+        path = tmp_path / "nabor.json"
+        oba = [{"domain": f"d{i}.com", "reachable": True, **check(True, True)}
+               for i in range(20)]
+        path.write_text(json.dumps({"targets": oba}), encoding="utf-8")
+        prvi = [cilj.domain for cilj in load_targets(path, 0, "h2", sample=5, seed=1234)]
+        drugi = [cilj.domain for cilj in load_targets(path, 0, "h3", sample=5, seed=1234)]
+        assert len(prvi) == 5
+        assert prvi == drugi
+        assert prvi != [cilj.domain for cilj
+                        in load_targets(path, 0, "h2", sample=5, seed=7)]
+
+    def test_cilji_se_filtrirajo_po_protokolu(self, tmp_path):
+        path = tmp_path / "nabor.json"
+        path.write_text(json.dumps(self.sestavljen()), encoding="utf-8")
+        assert [t.domain for t in load_targets(path, 0, "h2")] == ["oba.com", "samo2.com"]
+        assert [t.domain for t in load_targets(path, 0, "h3")] == ["oba.com", "samo3.com"]
+        assert len(load_targets(path, 0)) == 3
+
+
+class TestSamoHttp2:
+    """Domena, ki v merjeni postavitvi dela po HTTP/2 in ne po HTTP/3, kaze ceno
+    prestrezanja prometa QUIC. Domena, ki QUIC sploh ne ponuja, v to ne sodi."""
+
+    def test_neuspeh_pri_h3_se_zabelezi(self):
+        measured = index([probe("curl", "h2", "a.com", True),
+                          probe("curl", "h3", "a.com", False, "curl:28")])
+        assert [item["domain"] for item in splet_report.only_h2(measured)["curl"]] \
+            == ["a.com"]
+
+    def test_domena_brez_h3_v_naboru_ne_steje(self):
+        measured = index([probe("curl", "h2", "a.com", True)])
+        assert splet_report.only_h2(measured) == {}
+
+    def test_kadar_delujeta_oba_ni_razlike(self):
+        measured = index([probe("curl", "h2", "a.com", True),
+                          probe("curl", "h3", "a.com", True)])
+        assert splet_report.only_h2(measured) == {}
