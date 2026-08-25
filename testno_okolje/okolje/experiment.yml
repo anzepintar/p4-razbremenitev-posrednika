@@ -17,7 +17,7 @@ protocols:
   h2: 0.0
   h3: 1.0
 
-modes: [brez, ip_black, ip_white, sni_black, sni_white, content_block]
+modes: [other, ip_black, ip_white, sni_black, sni_white, content_block]
 
 load:
   connect_timeout_s: 3.000

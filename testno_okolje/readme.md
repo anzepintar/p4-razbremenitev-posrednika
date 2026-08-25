@@ -49,7 +49,7 @@ seznami, razdelitev domen, naslovi strežnika in matrika meritve.
 | `domains.total`, `domains.groups` | koliko domen gre v meritev in kako se razdelijo po skupinah |
 | `server_ips` | privzeti naslov strežnika ter ločena naslova za `ip_black` in `ip_white` |
 | `protocols` | delež zahtev po HTTP/2 in HTTP/3 |
-| `modes` | katere vrste prometa se merijo |
+| `modes` | katere skupine prometa se merijo |
 | `load` | izteka `connect_timeout_s` in `max_time_s`, velikost objekta `object_kb` |
 | `run` | seme, izhodni imenik, korensko potrdilo in nabor strani |
 
@@ -57,14 +57,17 @@ Vsak način iz `modes` potrebuje svojo skupino domen, vsota skupin pa ne sme pre
 Razdelitev je determinstična (sha1 imena domene). Po vsaki spremembi poženi
 `./orodja/gen_lists.py`; datotek v `okolje/lists/` ne urejaj ročno, ker jih prepiše.
 
-| skupina | mehanizem | v `A0` | v `B0` |
-| :--- | :--- | :--- | :--- |
-| `ip_black` | naslov `10.0.2.11` | posrednik (`--block-list`) | stikalo, ob prvem paketu |
-| `ip_white` | naslov `10.0.2.12` | posrednik tunelira (`--ignore-hosts`) | stikalo, mimo posrednika |
-| `sni_black` | `domain_black.txt` | posrednik (`--block-list`) | stikalo, ob `ClientHello` oziroma `Initial` |
-| `sni_white` | `domain_white.txt` | posrednik tunelira | TCP: posrednik tunelira; QUIC: stikalo, mimo posrednika |
-| `content_block` | `content_rules.txt` | posrednik, po dešifriranju | posrednik, po dešifriranju |
-| `unknown` | — | dešifrira se | dešifrira se |
+| skupina prometa | ključ | mehanizem | v `A0` | v `B0` |
+| :--- | :--- | :--- | :--- | :--- |
+| črni IP promet | `ip_black` | naslov `10.0.2.11` | posrednik (`--block-list`) | stikalo, ob prvem paketu |
+| beli IP promet | `ip_white` | naslov `10.0.2.12` | posrednik tunelira (`--ignore-hosts`) | stikalo, mimo posrednika |
+| črni domenski promet | `sni_black` | `domain_black.txt` | posrednik (`--block-list`) | stikalo, ob `ClientHello` oziroma `Initial` |
+| beli domenski promet | `sni_white` | `domain_white.txt` | posrednik tunelira | TCP: posrednik tunelira; QUIC: stikalo, mimo posrednika |
+| promet, blokiran po vsebini | `content_block` | `content_rules.txt` | posrednik, po dešifriranju | posrednik, po dešifriranju |
+| ostali promet | `unknown` | — | dešifrira se | dešifrira se |
+
+Ta imena so v veljavi povsod, na grafih, v tabelah in v besedilu. Način `other` v `modes` je
+ista skupina kot `unknown`, torej ostali promet.
 
 Dodatek `content_block.py` je privzeto vklopljen, ker ga meritev potrebuje; izklopi ga
 `--no-content-block`. Pri `object_kb > 0` odjemalec namesto dokumenta strani potegne
@@ -87,8 +90,8 @@ Ime strežnika iz prometa TCP razčleni razčlenjevalnik v `okolje/switch/steeri
 | `./orodja/m1_oprema.sh` | `C0` | zgornja meja merilne opreme same, oba protokola |
 | `./orodja/m2_stikalo.sh` | `A0`, `B0` | cena prestrezanja in cena stikala v poti |
 | `./orodja/m3_pravilnost.sh` | `A0`, `B0` | pravilnost uveljavljanja politike |
-| `./orodja/m4_vrste.sh` | `A0`, `B0` | vpliv stikala po posameznih vrstah prometa |
-| `./orodja/m5_zmogljivost.sh` | `A0`, `B0` | največja hitrost za vrste, ki gredo lahko čez |
+| `./orodja/m4_vrste.sh` | `A0`, `B0` | vpliv stikala po posameznih skupinah prometa |
+| `./orodja/m5_zmogljivost.sh` | `A0`, `B0` | največja hitrost za skupine, ki gredo lahko čez |
 | `./orodja/m6_prag.sh` | `A0`, `B0` | delež obhoda, pri katerem je stikalo smiselno |
 
 Vsak program zapiše v `okolje/out/<ime>/` sliko v `graf/`, `results.md`, `veljavnost.md` in
@@ -103,8 +106,8 @@ na koncu potrditveni tek), `m4` in `m6` pa merita pri stalni obremenitvi `RATE_H
 | `WARMUP_REQUESTS` | 100, v `m4` in `m6` 300 | zahteve ogrevalnega teka pred celico |
 | `SEARCH_START`, `SEARCH_MAX`, `SEARCH_TOLERANCE` | 8, 512, 5 | meji iskanja in razmik bisekcije |
 | `RATE_H2`, `RATE_H3` | 80, 10 | stalna obremenitev v `m4` in `m6` v zahtevah/s |
-| `CELL_MODES` | `brez ip_white sni_white` | vrste prometa v `m5` |
-| `MECHANISMS`, `SHARES` | `ip_white sni_white`, `0 25 50 75 100` | mehanizmi in deleži obhoda v `m6` |
+| `CELL_MODES` | `other ip_white sni_white` | skupine prometa v `m5` |
+| `MECHANISMS`, `SHARES` | `ip_white sni_white`, `0 25 50 75 100` | skupini prometa in deleži obhoda v `m6` |
 | `SUDO` | `sudo` | prazno, kadar `clab` ne potrebuje pravic |
 
 ## Pregled spleta
@@ -141,7 +144,7 @@ osip nabora.
 | `SELECT_LIMIT`, `SELECT_JOBS` | 0, 64 | koliko domen gre v izbor (0 je vse) in vzporednost izbora |
 | `LIMIT`, `RETRIES`, `KEEP` | 0, 1, 1 | koliko domen vzorca (0 je vse), ponovitve, pusti `B1` pokoncno |
 | `CONNECT_TIMEOUT`, `MAX_TIME` | 10, 10 | izteka curl v sekundah, ista pri izboru in pregledu |
-| `PAGE_TIMEOUT` | 5 | iztek brskalnika v sekundah |
+| `PAGE_TIMEOUT` | 15 | iztek brskalnika v sekundah |
 | `NO_KYBER` | 0 | firefoxu vzame hibridni ključ; diagnostika, ne meritev |
 
 Izbor pusti ob naboru še `apex.json`, kjer so z razlogom tudi domene, ki so iz nabora

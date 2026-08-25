@@ -95,10 +95,10 @@ client_run() {
 	clab exec -t "$TOPO_DIR/$topo.clab.yml" --label clab-node-name=client --cmd "$*"
 }
 
-# Nacin "brez" pomeni promet brez posegov, kar je skupina unknown; runner nacinov ne pozna.
+# Nacin "other" je ostali promet, kar je skupina unknown. Runner nacinov ne pozna.
 groups_for() {
 	case "$1" in
-	brez) echo unknown ;;
+	other) echo unknown ;;
 	*) echo "$1" ;;
 	esac
 }

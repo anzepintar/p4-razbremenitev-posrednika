@@ -11,8 +11,8 @@ HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "experiment.yml"
 ASSIGNMENT = HERE / "lists" / "assignment.json"
 
-MODES = ("brez", "ip_black", "ip_white", "sni_black", "sni_white", "content_block")
-POLICY_MODES = tuple(mode for mode in MODES if mode != "brez")
+MODES = ("other", "ip_black", "ip_white", "sni_black", "sni_white", "content_block")
+POLICY_MODES = tuple(mode for mode in MODES if mode != "other")
 
 CONTENT_MARKER = "x-block-me-7f3a"
 
@@ -68,7 +68,7 @@ def load(path: str | Path | None = None) -> Experiment:
             f"{', '.join(bad_share)}"
         )
 
-    default_modes = ["brez"] + [m for m in POLICY_MODES if groups.get(m)]
+    default_modes = ["other"] + [m for m in POLICY_MODES if groups.get(m)]
     modes = [str(m) for m in raw.get("modes", default_modes)]
     unknown_modes = [m for m in modes if m not in MODES]
     if unknown_modes:
@@ -76,7 +76,7 @@ def load(path: str | Path | None = None) -> Experiment:
             f"modes pozna samo {', '.join(MODES)}, dobil pa "
             f"{', '.join(unknown_modes)}"
         )
-    missing = [m for m in modes if m != "brez" and not groups.get(m)]
+    missing = [m for m in modes if m != "other" and not groups.get(m)]
     if missing:
         raise ExperimentError(
             f"nacini {', '.join(missing)} nimajo domen; postavi domains.groups v "

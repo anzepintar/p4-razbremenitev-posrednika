@@ -22,21 +22,30 @@ import maxrps
 from nodestats import NODES
 from runner.summarize import as_expected_pct, percentile, responded
 
-MODE_LABELS = {
-    "brez": "brez\nposegov",
+GROUP_LABELS = {
+    "other": "ostali promet",
+    "ip_black": "črni IP promet",
+    "ip_white": "beli IP promet",
+    "sni_black": "črni domenski promet",
+    "sni_white": "beli domenski promet",
+    "content_block": "promet, blokiran po vsebini",
+}
+GROUP_TICKS = {
+    "other": "ostali",
     "ip_black": "črni\nIP",
     "ip_white": "beli\nIP",
     "sni_black": "črni\ndomenski",
     "sni_white": "beli\ndomenski",
-    "content_block": "vsebinski\nčrni",
+    "content_block": "blokiran\npo vsebini",
 }
+GROUP_AXIS = "skupina prometa"
 PROTO_LABELS = {"h2": "HTTP/2", "h3": "HTTP/3"}
 TOPO_LABELS = {"C0": "C", "A0": "A", "B0": "B"}
 
 LINK_KEYS = ("rx_packets", "tx_packets", "rx_bytes", "tx_bytes")
 SWITCH_KEYS = counters.NAMES
 
-# Mehanizma, pri katerih promet obide posrednika in ju zato meri m6_prag.
+# Skupini prometa, ki obideta posrednika in ju zato meri m6_prag.
 MECHANISMS = ("ip_white", "sni_white")
 
 PAGE_WIDTH = 6.3
@@ -48,16 +57,12 @@ plt.rcParams.update({
 })
 
 
-def flat(text: str) -> str:
-    return text.replace("\n", " ")
-
-
 def topo_label(topo: str) -> str:
     if topo in TOPO_LABELS:
         return TOPO_LABELS[topo]
     base, _, mode = topo.partition("_")
     if base in TOPO_LABELS and mode:
-        return f"{TOPO_LABELS[base]}, {flat(MODE_LABELS.get(mode, mode))}"
+        return f"{TOPO_LABELS[base]}, {GROUP_LABELS.get(mode, mode)}"
     return topo
 
 
@@ -269,7 +274,8 @@ def axis(cells: dict, index: int) -> list:
     if index == 0:
         return [t for t in TOPO_LABELS if t in seen] + [t for t in seen if t not in TOPO_LABELS]
     if index == 2:
-        return [m for m in MODE_LABELS if m in seen] + [m for m in seen if m not in MODE_LABELS]
+        return ([m for m in GROUP_LABELS if m in seen]
+                + [m for m in seen if m not in GROUP_LABELS])
     return seen
 
 
@@ -283,7 +289,7 @@ def max_rps(root: Path, topo: str, proto: str) -> int | None:
 
 
 def mix_points(cells: dict, mechanism: str) -> list[int]:
-    """Delezi obhoda iz imen celic oblike <mehanizem>_p<delez>."""
+    """Delezi obhoda iz imen celic oblike <skupina>_p<delez>."""
     head = f"{mechanism}_p"
     return sorted({int(name[len(head):]) for _, _, name in cells
                    if name.startswith(head) and name[len(head):].isdigit()})
@@ -323,7 +329,9 @@ def bars_chart(cells: dict, stem: str, key: str, ylabel: str, out: Path,
                            label=topo_label(topo))
             ax.bar_label(drawn, labels=labels, padding=2, fontsize=6.5)
         ax.set_xticks(range(len(names)))
-        ax.set_xticklabels([MODE_LABELS.get(n, n) for n in names])
+        ax.set_xticklabels([GROUP_TICKS.get(n, n) for n in names])
+        if index == len(protocols) - 1:
+            ax.set_xlabel(GROUP_AXIS)
         ax.set_ylabel(ylabel, fontsize=8)
         ax.set_title(panel_title(cells, proto), loc="left", pad=10)
         ax.margins(y=0.26)
@@ -429,13 +437,13 @@ def render_pravilnost(cells: dict, out: Path, name: str) -> None:
     bars_chart(cells, "m3_pravilnost", "policy_ok_pct", "pravilnost (%)",
                out, axis(cells, 2))
 
-    header = ["postavitev", "protokol", "vrsta prometa", "pravilnost (%)",
+    header = ["postavitev", "protokol", "skupina prometa", "pravilnost (%)",
               "poslanih zahtev", "sej pri posredniku", "števci stikala"]
     rows = []
     for (topo, proto, mode), cell in cells.items():
         seen = {k: v for k, v in (cell.get("switch") or {}).items() if v}
         rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
-                     flat(MODE_LABELS.get(mode, mode)),
+                     GROUP_LABELS.get(mode, mode),
                      show(cell, "policy_ok_pct"), show(cell, "requests"),
                      show(cell, "proxy_sessions"),
                      ", ".join(f"{k} {v}" for k, v in seen.items()) or "-"])
@@ -452,7 +460,7 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
     root = out.parent
     protocols = axis(cells, 1)
     seen = {t.partition("_")[2] for t in axis(cells, 0) if "_" in t}
-    names = [m for m in MODE_LABELS if m in seen]
+    names = [m for m in GROUP_LABELS if m in seen]
 
     limits = {}
     for topo in ("A0", "B0"):
@@ -467,7 +475,7 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
     bars_chart(limits, "m5_zmogljivost", "max_rps",
                "največja vzdržna hitrost (zahtev/s)", out, names)
 
-    header = ["postavitev", "protokol", "vrsta prometa",
+    header = ["postavitev", "protokol", "skupina prometa",
               "največja vzdržna hitrost (zahtev/s)", "propustnost pri njej (Mb/s)",
               "CPU posrednika (ms/zahtevo)", "CPU stikala (ms/zahtevo)"]
     rows = []
@@ -479,7 +487,7 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
                     continue
                 confirmed = cells.get((f"{topo}_{mode}", proto, "potrjeno")) or {}
                 rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
-                             flat(MODE_LABELS.get(mode, mode)), str(found),
+                             GROUP_LABELS.get(mode, mode), str(found),
                              show(confirmed, "goodput_mbps"),
                              show(confirmed, "cpu_ms_per_request_mitm"),
                              show(confirmed, "cpu_ms_per_request_switch")])
@@ -551,7 +559,7 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
                 ax.annotate(f"prag {point * 100:.0f} %", (point, 1.0),
                             xycoords=("data", "axes fraction"),
                             textcoords="offset points", xytext=(3, -10), fontsize=7)
-            ax.set_title(f"{flat(MODE_LABELS.get(mechanism, mechanism))}, "
+            ax.set_title(f"{GROUP_LABELS.get(mechanism, mechanism)}, "
                          f"{panel_title(cells, proto)}", loc="left")
             if row == len(drawn) - 1:
                 ax.set_xlabel("delež obhodnega prometa")
@@ -562,13 +570,14 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
     legend(fig, axes)
     save(fig, "m6_prag", out)
 
-    header = ["protokol", "mehanizem", "A pregled", "A obhod", "B pregled", "B obhod", "prag"]
+    header = ["protokol", "skupina prometa", "A pregled", "A obhod",
+              "B pregled", "B obhod", "prag"]
     rows = []
     for proto in protocols:
         for mechanism in drawn:
             ends = anchors(cells, proto, mechanism)
             rows.append([PROTO_LABELS.get(proto, proto),
-                         flat(MODE_LABELS.get(mechanism, mechanism)),
+                         GROUP_LABELS.get(mechanism, mechanism),
                          *(f"{v:g}" if v is not None else "-"
                            for v in (*ends["A0"], *ends["B0"])),
                          threshold_label(*ends["A0"], *ends["B0"])])

@@ -4,9 +4,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 NAME=m3_pravilnost
 PURPOSE="Ali je politika uveljavljena pravilno - pri posredniku in pri stikalu - v obeh
-protokolih. Za vsako vrsto prometa tece tok, ki je v celoti te vrste, pri nizki frekvenci, da
-nasicenje ne skrije napak. Sodba se sestavi iz treh neodvisnih virov: izida pri odjemalcu,
-stevcev stikala in dnevnika sej posrednika."
+protokolih. Za vsako skupino prometa tece tok, ki je v celoti iz te skupine, pri nizki
+frekvenci, da nasicenje ne skrije napak. Sodba se sestavi iz treh neodvisnih virov:
+izida pri odjemalcu, stevcev stikala in dnevnika sej posrednika."
 
 . orodja/lib.sh
 

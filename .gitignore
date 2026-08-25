@@ -2,6 +2,7 @@ testni_podatki/*
 !testni_podatki/vir.txt
 testno_okolje/okolje/pki/
 testno_okolje/okolje/out/
+testno_okolje/okolje/out_backup/
 testno_okolje/okolje/server/testset/
 testno_okolje/okolje/server/sites.caddy
 testno_okolje/okolje/switch/build/

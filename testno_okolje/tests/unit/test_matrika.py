@@ -278,10 +278,10 @@ class TestPragRentabilnosti:
 class TestZbiranje:
 
     def test_osi_so_v_smiselnem_vrstnem_redu(self):
-        cells = {("B0", "h3", "sni_white"): {}, ("A0", "h2", "brez"): {},
+        cells = {("B0", "h3", "sni_white"): {}, ("A0", "h2", "other"): {},
                  ("C0", "h2", "ip_black"): {}}
         assert plot.axis(cells, 0) == ["C0", "A0", "B0"]
-        assert plot.axis(cells, 2) == ["brez", "ip_black", "sni_white"]
+        assert plot.axis(cells, 2) == ["other", "ip_black", "sni_white"]
 
     def test_hitrosti_in_delezi_se_prebereta_iz_imena(self):
         cells = {("A0", "h2", "r128"): {}, ("A0", "h2", "r16"): {},

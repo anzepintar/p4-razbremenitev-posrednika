@@ -10,7 +10,7 @@ BASE = {
     "server_ips": {"default": "10.0.2.10", "ip_black": "10.0.2.11",
                    "ip_white": "10.0.2.12"},
     "protocols": {"h2": 0.0, "h3": 1.0},
-    "modes": ["brez", "ip_black", "sni_black"],
+    "modes": ["other", "ip_black", "sni_black"],
     "load": {"connect_timeout_s": 3.0, "max_time_s": 10, "object_kb": 0},
     "run": {"seed": 1, "out": "/tmp/out", "cacert": "/tmp/ca.pem",
             "testset": "/tmp/testset", "subset": "testni"},
@@ -35,7 +35,7 @@ def testset(tmp_path, count: int):
 class TestLoad:
     def test_prebere_vrednosti(self, tmp_path):
         settings = exp.load(config(tmp_path))
-        assert settings.modes == ["brez", "ip_black", "sni_black"]
+        assert settings.modes == ["other", "ip_black", "sni_black"]
         assert settings.protocols == {"h2": 0.0, "h3": 1.0}
         assert settings.connect_timeout_s == 3.0
         assert settings.max_time_s == 10.0
@@ -55,12 +55,12 @@ class TestLoad:
 class TestNacini:
 
     def test_neznan_nacin_je_napaka(self, tmp_path):
-        path = config(tmp_path, modes=["brez", "ni_taksne"])
+        path = config(tmp_path, modes=["other", "ni_taksne"])
         with pytest.raises(exp.ExperimentError, match="modes pozna"):
             exp.load(path)
 
     def test_nacin_brez_domen_je_napaka(self, tmp_path):
-        path = config(tmp_path, modes=["brez", "ip_white"])
+        path = config(tmp_path, modes=["other", "ip_white"])
         with pytest.raises(exp.ExperimentError, match="nimajo domen"):
             exp.load(path)
 
@@ -68,10 +68,10 @@ class TestNacini:
         data = {k: v for k, v in BASE.items() if k != "modes"}
         path = tmp_path / "experiment.yml"
         path.write_text(yaml.safe_dump(data), encoding="utf-8")
-        assert exp.load(path).modes == ["brez", "ip_black", "sni_black"]
+        assert exp.load(path).modes == ["other", "ip_black", "sni_black"]
 
     def test_izhodisce_ne_potrebuje_skupine(self, tmp_path):
-        assert "brez" not in exp.load(config(tmp_path)).groups
+        assert "other" not in exp.load(config(tmp_path)).groups
 
 
 class TestAssign:
@@ -82,7 +82,7 @@ class TestAssign:
 
     def test_presezek_pade_v_unknown(self, tmp_path):
         settings = exp.load(config(tmp_path, domains={
-            "total": 10, "groups": {"ip_black": 2}}, modes=["brez", "ip_black"]))
+            "total": 10, "groups": {"ip_black": 2}}, modes=["other", "ip_black"]))
         data = exp.build(settings, testset=testset(tmp_path, 10))
         assert data["counts"] == {"ip_black": 2, "unknown": 8}
 
@@ -112,7 +112,7 @@ class TestAssign:
 
     def test_spremenjeno_razmerje_spremeni_razdelitev(self, tmp_path):
         root = testset(tmp_path, 10)
-        modes = ["brez", "ip_black"]
+        modes = ["other", "ip_black"]
         few = exp.build(exp.load(config(tmp_path, modes=modes, domains={
             "total": 10, "groups": {"ip_black": 2, "unknown": 8}})), testset=root)
         many = exp.build(exp.load(config(tmp_path, modes=modes, domains={

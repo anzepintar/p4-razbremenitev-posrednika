@@ -3,15 +3,16 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 NAME=m5_zmogljivost
-PURPOSE="Najvecja hitrost prehoda prometa v A in B, za tri vrste prometa, ki lahko gre cez.
-m4 meri pri stalni obremenitvi pod nasicenjem, zato tam propustnost ne more biti razlicna.
-Ta meritev nasici vsako vrsto prometa posebej in edina izrazi razbremenitev v zmogljivosti in
-ne v porabi procesorja. Izhodisce brez posegov izmeri sama, da so vsi stolpci iz istega teka."
+PURPOSE="Najvecja hitrost prehoda prometa v A in B, za tri skupine prometa, ki lahko gredo
+cez. m4 meri pri stalni obremenitvi pod nasicenjem, zato tam propustnost ne more biti
+razlicna. Ta meritev nasici vsako skupino prometa posebej in edina izrazi razbremenitev v
+zmogljivosti in ne v porabi procesorja. Izhodisce ostali promet izmeri sama, da so vsi stolpci
+iz istega teka."
 
 . orodja/lib.sh
 
 SEARCH_MAX="${SEARCH_MAX:-2048}"
-CELL_MODES="${CELL_MODES:-brez ip_white sni_white}"
+CELL_MODES="${CELL_MODES:-other ip_white sni_white}"
 
 for topo in A0 B0; do
 	echo "== $topo =="
