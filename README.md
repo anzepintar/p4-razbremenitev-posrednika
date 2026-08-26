@@ -9,6 +9,9 @@ Pregled resničnega spleta obišče vzorec domen s curl, chromiumom in firefoxom
 
 Podrobnosti o postavitvah, gradnji in meritvah so v [testno_okolje/readme.md](testno_okolje/readme.md).
 
+Koda naše veje mitmproxy-ja se nahaja na [mitmproxy-quic-transparent](https://github.com/anzepintar/mitmproxy-quic-transparent).
+
 ## Obvestilo
-To je raziskovalni prototip, izdelan za namene ocene diplomske naloge.
+To je raziskovalno okolje, izdelano za namene diplomske naloge.
+
 Koda je bila napisana s pomočjo generativne umetne inteligence.
