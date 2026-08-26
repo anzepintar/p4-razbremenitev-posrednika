@@ -1,5 +1,4 @@
-# Filtriranje šifriranega prometa s programabilnim stikalom
-
+# P4 razbremenitev posrednika
 Projekt preizkuša če lahko programabilno stikalo P4 razbremeni posrednik pri filtriranju šifriranega prometa.
 Stikalo bmv2 iz prometa prebere ime strežnika, tako iz sporočila ClientHello pri TLS kot iz šifriranega paketa Initial pri QUIC.
 Na tej podlagi promet blokira, spusti mimo ali pošlje posredniku mitmproxy, ki ga dešifrira in pregleda vsebino.
