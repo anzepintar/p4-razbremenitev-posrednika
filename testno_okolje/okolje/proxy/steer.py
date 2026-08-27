@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 BUILD = Path("/opt/traffic/switch/build")
-P4INFO = BUILD / "steering.p4info.txtpb"
-BMV2_JSON = BUILD / "steering.json"
+P4INFO = BUILD / "usmerjanje.p4info.txtpb"
+BMV2_JSON = BUILD / "usmerjanje.json"
 COMMON = Path("/opt/traffic")
 
 sys.path.insert(0, str(COMMON))

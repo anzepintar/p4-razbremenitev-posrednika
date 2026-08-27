@@ -2,11 +2,11 @@ ARG BMV2_IMAGE=bmv2-perf:1.15.5-modules
 
 FROM p4lang/p4c:1.2.5.16 AS p4build
 
-COPY steering.p4 /src/steering.p4
+COPY usmerjanje.p4 /src/usmerjanje.p4
 
 RUN mkdir -p /out && p4c-bm2-ss --arch v1model --emit-externs \
-        --p4runtime-files /out/steering.p4info.txtpb \
-        -o /out/steering.json /src/steering.p4
+        --p4runtime-files /out/usmerjanje.p4info.txtpb \
+        -o /out/usmerjanje.json /src/usmerjanje.p4
 
 FROM ${BMV2_IMAGE} AS externbuild
 

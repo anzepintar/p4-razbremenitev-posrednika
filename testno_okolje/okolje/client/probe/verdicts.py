@@ -45,7 +45,7 @@ def origin_of(url: str) -> str:
 
 def curl_argv(url: str, proto: str, *, connect_timeout: float, max_time: float,
               cacert: str | None = None, follow: bool = False) -> list[str]:
-    # --ipv4: steering.p4 zavrze vse, kar ni IPv4.
+    # --ipv4: usmerjanje.p4 zavrze vse, kar ni IPv4.
     argv = ["curl", "--silent", "--no-progress-meter", "--show-error", "--ipv4"]
     argv += ["--connect-timeout", f"{connect_timeout:g}", "--max-time", f"{max_time:g}"]
     argv += PROTO_FLAG[proto]

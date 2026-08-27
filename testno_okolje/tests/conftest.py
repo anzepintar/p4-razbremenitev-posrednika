@@ -83,15 +83,15 @@ def lab():
     return TOPO
 
 
-P4 = OKOLJE / "switch" / "steering.p4"
+P4 = OKOLJE / "switch" / "usmerjanje.p4"
 
 
 def p4_const(name: str) -> int:
-    """Konstanta iz steering.p4. Testi jo berejo iz izvorne kode, da se meje
+    """Konstanta iz usmerjanje.p4. Testi jo berejo iz izvorne kode, da se meje
     razclenjevalnika in test ne moreta razhajati."""
     found = re.search(rf"const\s+bit<\d+>\s+{name}\s*=\s*(\d+)",
                       P4.read_text(encoding="utf-8"))
-    assert found, f"konstante {name} ni v steering.p4"
+    assert found, f"konstante {name} ni v usmerjanje.p4"
     return int(found.group(1))
 
 
