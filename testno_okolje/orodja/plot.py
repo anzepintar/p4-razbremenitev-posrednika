@@ -53,7 +53,11 @@ PAGE_WIDTH = 6.3
 plt.rcParams.update({
     "font.size": 9, "axes.titlesize": 9, "axes.labelsize": 9,
     "legend.fontsize": 8, "xtick.labelsize": 8, "ytick.labelsize": 8,
-    "pdf.fonttype": 42,
+    # ps.fonttype nastavimo skupaj s pdf.fonttype, ker zaledje PDF velikost
+    # podnabora pisave bere iz ps.fonttype; pri privzeti vrednosti 3 znaki nad
+    # U+00FF (šumniki) pristanejo v drugem podnaboru pod CID 0 (.notdef),
+    # kar podre skladnost s PDF/A.
+    "pdf.fonttype": 42, "ps.fonttype": 42,
 })
 
 
