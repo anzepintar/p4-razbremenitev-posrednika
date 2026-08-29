@@ -19,6 +19,7 @@ sys.path.insert(0, str(OKOLJE / "client"))
 
 import counters
 import maxrps
+import stats
 from nodestats import NODES
 from runner.summarize import as_expected_pct, percentile, responded
 
@@ -257,17 +258,43 @@ def load_cell(directory: Path) -> dict | None:
     return cell
 
 
+def runs(root: Path) -> list[Path]:
+    found = sorted(d for d in root.glob("tek*") if d.is_dir())
+    return found or [root]
+
+
 def collect(root: Path) -> dict:
     cells: dict = {}
-    for directory in sorted(root.glob("*/*/*")):
-        if not directory.is_dir():
-            continue
-        cell = load_cell(directory)
-        if cell is not None:
-            topo, proto, name = directory.parts[-3:]
-            cell["ok"] = read_json(directory / "verdict.json").get("ok")
-            cells[(topo, proto, name)] = cell
+    for run in runs(root):
+        for directory in sorted(run.glob("*/*/*")):
+            if not directory.is_dir():
+                continue
+            cell = load_cell(directory)
+            if cell is not None:
+                topo, proto, name = directory.parts[-3:]
+                cell["ok"] = read_json(directory / "verdict.json").get("ok")
+                cells.setdefault((topo, proto, name), []).append(cell)
     return cells
+
+
+def values(cell: list[dict], key: str) -> list:
+    return [run.get(key) for run in cell]
+
+
+def mean(cell: list[dict], key: str) -> float | None:
+    return stats.mean(values(cell, key))
+
+
+def spread(cell: list[dict], key: str) -> float | None:
+    return stats.spread(values(cell, key))
+
+
+def counter_means(cell: list[dict]) -> dict:
+    seen: dict[str, list] = {}
+    for run in cell:
+        for key, value in (run.get("switch") or {}).items():
+            seen.setdefault(key, []).append(value)
+    return {key: stats.mean(found) for key, found in seen.items()}
 
 
 def axis(cells: dict, index: int) -> list:
@@ -288,8 +315,8 @@ def rates(cells: dict) -> list[int]:
                    if name.startswith("r") and name[1:].isdigit()})
 
 
-def max_rps(root: Path, topo: str, proto: str) -> int | None:
-    return maxrps.read(root / topo / proto)
+def max_rps(root: Path, topo: str, proto: str) -> list[int]:
+    return maxrps.read_all([run / topo / proto for run in runs(root)])
 
 
 def mix_points(cells: dict, mechanism: str) -> list[int]:
@@ -305,8 +332,8 @@ def whole(value: float) -> str:
 
 def rate_note(cells: dict, proto: str) -> str:
     """Privzeta obremenitev spada v naslov plosce; pri iskanju je ni, ker se hitrost menja."""
-    found = sorted({c["rate_rps"] for (_, p, _), c in cells.items()
-                    if p == proto and c.get("rate_rps")})
+    found = sorted({c[0]["rate_rps"] for (_, p, _), c in cells.items()
+                    if p == proto and c[0].get("rate_rps")})
     return f" ({whole(found[0])} zahtev/s)" if len(found) == 1 else ""
 
 
@@ -324,13 +351,16 @@ def bars_chart(cells: dict, stem: str, key: str, ylabel: str, out: Path,
         width = 0.8 / max(len(topos), 1)
         for order, topo in enumerate(topos):
             offset = (order - (len(topos) - 1) / 2) * width
-            heights, labels = [], []
+            heights, errors, labels = [], [], []
             for name in names:
-                value = (cells.get((topo, proto, name)) or {}).get(key)
+                cell = cells.get((topo, proto, name)) or []
+                value = mean(cell, key) if cell else None
+                half = spread(cell, key) if cell else None
                 heights.append(float("nan") if value is None else value)
+                errors.append(0.0 if half is None else half)
                 labels.append("" if value is None else number(value))
             drawn = ax.bar([i + offset for i in range(len(names))], heights, width * 0.9,
-                           label=topo_label(topo))
+                           yerr=errors, capsize=2, label=topo_label(topo))
             ax.bar_label(drawn, labels=labels, padding=2, fontsize=6.5)
         ax.set_xticks(range(len(names)))
         ax.set_xticklabels([GROUP_TICKS.get(n, n) for n in names])
@@ -360,17 +390,24 @@ def search_chart(cells: dict, stem: str, out: Path) -> None:
                       if (topo, proto, f"r{n}") in cells]
             if not trials:
                 continue
-            line = ax.plot([n for n, _ in trials], [c.get("requests_s") for _, c in trials],
-                           marker="o", label=topo_label(topo))
-            colour = line[0].get_color()
+            bars = ax.errorbar([n for n, _ in trials],
+                               [mean(c, "requests_s") for _, c in trials],
+                               yerr=[spread(c, "requests_s") or 0.0 for _, c in trials],
+                               marker="o", capsize=2, label=topo_label(topo))
+            colour = bars.lines[0].get_color()
             for n, cell in trials:
-                if cell.get("ok") is False and cell.get("requests_s") is not None:
-                    ax.plot([n], [cell["requests_s"]], marker="o", markersize=9,
+                height = mean(cell, "requests_s")
+                if any(run.get("ok") is False for run in cell) and height is not None:
+                    ax.plot([n], [height], marker="o", markersize=9,
                             linestyle="none", color=colour,
                             markerfacecolor="none", markeredgecolor=colour)
             found = max_rps(out.parent, topo, proto)
-            if found:
-                ax.axvline(found, linestyle="--", linewidth=1, color=colour)
+            centre, half, _ = stats.summary(found)
+            if centre:
+                ax.axvline(centre, linestyle="--", linewidth=1, color=colour)
+                if half:
+                    ax.axvspan(centre - half, centre + half, color=colour, alpha=0.12,
+                               linewidth=0)
         ax.set_xscale("log", base=2)
         marks = [2 ** e for e in range(3, 12)
                  if seen and seen[0] <= 2 ** e <= seen[-1]] or seen
@@ -393,8 +430,8 @@ def table(header: list[str], rows: list[list[str]]) -> str:
     return "\n".join(out) + "\n"
 
 
-def show(cell: dict, key: str) -> str:
-    value = cell.get(key)
+def show(cell: list[dict], key: str) -> str:
+    value = mean(cell, key) if cell else None
     return "-" if value is None else number(value)
 
 
@@ -445,12 +482,12 @@ def render_pravilnost(cells: dict, out: Path, name: str) -> None:
               "poslanih zahtev", "sej pri posredniku", "števci stikala"]
     rows = []
     for (topo, proto, mode), cell in cells.items():
-        seen = {k: v for k, v in (cell.get("switch") or {}).items() if v}
+        seen = {k: v for k, v in counter_means(cell).items() if v}
         rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
                      GROUP_LABELS.get(mode, mode),
                      show(cell, "policy_ok_pct"), show(cell, "requests"),
                      show(cell, "proxy_sessions"),
-                     ", ".join(f"{k} {v}" for k, v in seen.items()) or "-"])
+                     ", ".join(f"{k} {number(v)}" for k, v in seen.items()) or "-"])
     (out.parent / "pravilnost.md").write_text(table(header, rows), encoding="utf-8")
     print(f"  {out.parent / 'pravilnost.md'}")
 
@@ -472,7 +509,7 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
             for mode in names:
                 found = max_rps(root, f"{topo}_{mode}", proto)
                 if found:
-                    limits[(topo, proto, mode)] = {"max_rps": found}
+                    limits[(topo, proto, mode)] = [{"max_rps": v} for v in found]
     if not limits:
         return
 
@@ -486,12 +523,12 @@ def render_zmogljivost(cells: dict, out: Path, name: str) -> None:
     for topo in ("A0", "B0"):
         for proto in protocols:
             for mode in names:
-                found = (limits.get((topo, proto, mode)) or {}).get("max_rps")
+                found = mean(limits.get((topo, proto, mode)) or [], "max_rps")
                 if found is None:
                     continue
-                confirmed = cells.get((f"{topo}_{mode}", proto, "potrjeno")) or {}
+                confirmed = cells.get((f"{topo}_{mode}", proto, "potrjeno")) or []
                 rows.append([topo_label(topo), PROTO_LABELS.get(proto, proto),
-                             GROUP_LABELS.get(mode, mode), str(found),
+                             GROUP_LABELS.get(mode, mode), number(found),
                              show(confirmed, "goodput_mbps"),
                              show(confirmed, "cpu_ms_per_request_mitm"),
                              show(confirmed, "cpu_ms_per_request_switch")])
@@ -525,8 +562,8 @@ def threshold_label(a_insp, a_pass, b_insp, b_pass) -> str:
 def anchors(cells: dict, proto: str, mechanism: str) -> dict:
     """Cisti ceni pri niclemu in polnem obhodu, iz katerih tece modelna premica."""
     key = "cpu_ms_per_request_mitm"
-    return {topo: ((cells.get((topo, proto, f"{mechanism}_p0")) or {}).get(key),
-                   (cells.get((topo, proto, f"{mechanism}_p100")) or {}).get(key))
+    return {topo: (mean(cells.get((topo, proto, f"{mechanism}_p0")) or [], key),
+                   mean(cells.get((topo, proto, f"{mechanism}_p100")) or [], key))
             for topo in ("A0", "B0")}
 
 
@@ -550,12 +587,14 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
                     continue
                 line = ax.plot(span, [(1 - p) * insp + p * bypass for p in span],
                                label=f"{topo_label(topo)} model")
-                ys = [(cells.get((topo, proto, f"{mechanism}_p{p}")) or {}).get(key)
-                      for p in inner]
+                points = [cells.get((topo, proto, f"{mechanism}_p{p}")) or [] for p in inner]
+                ys = [mean(c, key) if c else None for c in points]
                 if any(y is not None for y in ys):
-                    ax.plot([p / 100 for p in inner], ys, linestyle="none", marker="o",
-                            color=line[0].get_color(),
-                            label=f"{topo_label(topo)} izmerjeno")
+                    ax.errorbar([p / 100 for p in inner], ys,
+                                yerr=[(spread(c, key) or 0.0) if c else 0.0 for c in points],
+                                linestyle="none", marker="o", capsize=2,
+                                color=line[0].get_color(),
+                                label=f"{topo_label(topo)} izmerjeno")
 
             point = crossing(*ends["A0"], *ends["B0"])
             if point is not None and 0 <= point <= 1:
@@ -582,11 +621,29 @@ def render_prag(cells: dict, out: Path, name: str) -> None:
             ends = anchors(cells, proto, mechanism)
             rows.append([PROTO_LABELS.get(proto, proto),
                          GROUP_LABELS.get(mechanism, mechanism),
-                         *(f"{v:g}" if v is not None else "-"
+                         *(number(v) if v is not None else "-"
                            for v in (*ends["A0"], *ends["B0"])),
                          threshold_label(*ends["A0"], *ends["B0"])])
     (out.parent / "prag.md").write_text(table(header, rows), encoding="utf-8")
     print(f"  {out.parent / 'prag.md'}")
+
+
+SCALARS = tuple(key for key, _ in REPORT_KEYS) + (
+    "requests_s", "errors_pct", "proxy_sessions", "duration_s", "window_s",
+    "warmup_s", "rate_rps", "workers",
+) + tuple(f"cpu_ms_per_request_{node}" for node in NODES) + tuple(
+    f"cpu_util_{node}" for node in NODES)
+
+
+def aggregate(cell: list[dict]) -> dict:
+    keys = [k for k in dict.fromkeys(SCALARS) if any(k in run for run in cell)]
+    return {
+        "n": len(cell),
+        "mean": {key: mean(cell, key) for key in keys},
+        "ci95": {key: spread(cell, key) for key in keys},
+        "switch": counter_means(cell),
+        "runs": cell,
+    }
 
 
 RENDERERS = {
@@ -611,7 +668,8 @@ def main(argv: list[str] | None = None) -> int:
         if not cells:
             print(f"{root}: ni meritev")
             continue
-        print(f"{root.name}: {len(cells)} celic")
+        found = len(runs(root))
+        print(f"{root.name}: {len(cells)} celic v {found} tekih")
         render = RENDERERS.get(root.name)
         if render is None:
             print(f"  {root.name} ni med meritvami, zato slike ni; tabele vseeno zapisem")
@@ -620,7 +678,7 @@ def main(argv: list[str] | None = None) -> int:
         (root / "results.md").write_text(results_table(cells), encoding="utf-8")
         (root / "veljavnost.md").write_text(validity_table(cells), encoding="utf-8")
         (root / "results.json").write_text(
-            json.dumps({"/".join(k): v for k, v in cells.items()},
+            json.dumps({"/".join(k): aggregate(v) for k, v in cells.items()},
                        indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
         print(f"  {root / 'results.md'}, veljavnost.md, results.json")
     return 0

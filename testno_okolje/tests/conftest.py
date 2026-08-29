@@ -98,7 +98,7 @@ def p4_const(name: str) -> int:
 SIZE = 100_000
 
 
-def metric_rows(count: int, *, duration: float, group: str = "unknown",
+def metric_rows(count: int, *, duration: float, group: str = "other",
                 expect_blocked: bool = False, failures: int = 0,
                 size: int = SIZE) -> list[dict]:
     """Vrstice metrik za lazno celico. Neuspesne so prve, ker jih obe merili
@@ -161,7 +161,7 @@ def in_group(group: str) -> str:
 
 @pytest.fixture(scope="session")
 def benign():
-    return in_group("unknown")
+    return in_group("other")
 
 
 def curl(domain: str, proto: str = "h2", *, path: str = "/index.html", timeout: int = 15):

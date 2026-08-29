@@ -6,7 +6,9 @@ TOPO_DIR=.
 CURRENT=""
 SETTLE="${SETTLE:-2}"
 BLOCK_FAILED=0
-RESULTS="$OUT/$NAME"
+ROOT="$OUT/$NAME"
+RUNS="${RUNS:-5}"
+RESULTS=""
 
 ARTEFACTS="metrics.jsonl summary.json proxy_flows.jsonl"
 WARMUP_ARTEFACTS="metrics_ogrevanje.jsonl summary_ogrevanje.json proxy_flows.jsonl"
@@ -32,7 +34,6 @@ echo "$PURPOSE" | fold -s -w 78
 echo
 
 ./orodja/reclaim.sh
-mkdir -p "$RESULTS"
 
 cleanup() {
 	if [ -n "$CURRENT" ]; then
@@ -55,7 +56,7 @@ start_topo() {
 
 probe_ok() {
 	local topo="$1" domain ip code
-	read -r domain ip _ <<<"$(awk '$3 == "unknown" { print; exit }' "$OUT/warmup.txt" 2>/dev/null)"
+	read -r domain ip _ <<<"$(awk '$3 == "other" { print; exit }' "$OUT/warmup.txt" 2>/dev/null)"
 	[ -n "${domain:-}" ] || return 0
 	code=$(docker exec "clab-$topo-client" curl -s -o /dev/null -w '%{http_code}' \
 		--max-time 5 --cacert /opt/traffic/pki/trust.pem \
@@ -95,14 +96,6 @@ client_run() {
 	clab exec -t "$TOPO_DIR/$topo.clab.yml" --label clab-node-name=client --cmd "$*"
 }
 
-# Nacin "other" je ostali promet, kar je skupina unknown. Runner nacinov ne pozna.
-groups_for() {
-	case "$1" in
-	other) echo unknown ;;
-	*) echo "$1" ;;
-	esac
-}
-
 warm_up() {
 	local topo="$1" share="$2" groups="$3"
 	client_run "$topo" "python3 -m runner --config /opt/traffic/experiment.yml \
@@ -114,7 +107,7 @@ warm_up() {
 # cell <postavitev> <cilj> <quic-share> ; klicatelj nastavi CELL_*
 cell() {
 	local topo="$1" dest="$2" share="$3"
-	local groups="${CELL_GROUPS:-unknown}"
+	local groups="${CELL_GROUPS:-other}"
 	local workers="${CELL_WORKERS:-16}"
 	local duration="${CELL_DURATION:-$DURATION}"
 	local warmup="${CELL_WARMUP:-$WARMUP}"
@@ -161,7 +154,36 @@ PY
 finish() {
 	cleanup
 	./orodja/reclaim.sh
-	./orodja/plot.py "$RESULTS"
+	./orodja/plot.py "$ROOT"
+}
+
+# run_all <funkcija enega teka>
+run_all() {
+	local body="$1" run
+	for run in $(seq 1 "$RUNS"); do
+		RESULTS="$ROOT/tek$run"
+		if [ -f "$RESULTS/koncano.json" ]; then
+			echo "== tek $run/$RUNS je ze koncan, preskakujem =="
+			continue
+		fi
+		echo "== tek $run/$RUNS =="
+		rm -rf "$RESULTS"
+		mkdir -p "$RESULTS"
+		BLOCK_FAILED=0
+		"$body"
+		if [ "$BLOCK_FAILED" = 1 ]; then
+			echo "$NAME: tek $run je odpovedal, znacke ne pisem; ponovi zagon" >&2
+			return 1
+		fi
+		python3 - "$RESULTS/koncano.json" "$run" "$RUNS" <<MARK
+import json, sys, time
+json.dump({"measurement": "$NAME", "run": int(sys.argv[2]), "runs": int(sys.argv[3]),
+           "finished": time.strftime("%Y-%m-%dT%H:%M:%S")},
+          open(sys.argv[1], "w"), indent=2, ensure_ascii=False)
+MARK
+		cleanup
+	done
+	finish
 }
 
 SEARCH_START="${SEARCH_START:-8}"
@@ -191,7 +213,7 @@ search_max() {
 	local lo=0 hi=0 rate="$SEARCH_START" mid
 
 	mkdir -p "$dest"
-	warm_up "$topo" "$share" "${CELL_GROUPS:-unknown}"
+	warm_up "$topo" "$share" "${CELL_GROUPS:-other}"
 
 	while [ "$rate" -le "$SEARCH_MAX" ]; do
 		printf '    poskus %4s zahtev/s ... ' "$rate"
@@ -241,7 +263,6 @@ PY
 search_all() {
 	local topo="$1" entry proto share
 	start_topo "$topo" || return 1
-	BLOCK_FAILED=0
 	for entry in $PROTOCOLS; do
 		[ "$BLOCK_FAILED" = 1 ] && break
 		proto="${entry%%:*}"
@@ -254,7 +275,7 @@ search_all() {
 
 # max_rps <meritev> <postavitev> <protokol> -> hitrost ali prazno
 max_rps() {
-	./orodja/maxrps.py "$OUT/$1/$2/$3"
+	./orodja/maxrps.py "$OUT/$1"/tek*/"$2/$3"
 }
 
 # Izbor nabora za pregled spleta. Tece v tekoci postavitvi in z istimi izteki kot pregled,

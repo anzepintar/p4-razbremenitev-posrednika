@@ -9,10 +9,15 @@ njima natanko cena stikala v poti. Nobena krivulja ni prevzeta iz druge meritve.
 
 . orodja/lib.sh
 
-CELL_GROUPS=unknown
+CELL_GROUPS=other
 
-for topo in A0 B0; do
-	echo "== $topo =="
-	search_all "$topo"
-done
-finish
+tek() {
+	local topo
+	for topo in A0 B0; do
+		[ "$BLOCK_FAILED" = 1 ] && break
+		echo "== $topo =="
+		search_all "$topo"
+	done
+}
+
+run_all tek

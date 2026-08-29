@@ -66,65 +66,65 @@ class TestRequestPacer:
 class TestIzbiraSkupin:
 
     def test_vrne_samo_zahtevane_skupine(self):
-        pool = scenario({"sni_black": 3, "unknown": 2}).domains_in(["sni_black"])
+        pool = scenario({"sni_black": 3, "other": 2}).domains_in(["sni_black"])
         assert pool == ["sni_black0.example", "sni_black1.example", "sni_black2.example"]
 
     def test_vec_skupin_hkrati(self):
-        pool = scenario({"sni_black": 1, "ip_black": 1, "unknown": 1}).domains_in(
+        pool = scenario({"sni_black": 1, "ip_black": 1, "other": 1}).domains_in(
             ["sni_black", "ip_black"]
         )
         assert pool == ["ip_black0.example", "sni_black0.example"]
 
     def test_neznana_skupina_je_napaka(self):
         with pytest.raises(ScenarioError, match="ni"):
-            scenario({"unknown": 1}).domains_in(["ni_taksne"])
+            scenario({"other": 1}).domains_in(["ni_taksne"])
 
     def test_prazna_skupina_je_napaka(self):
         with pytest.raises(ScenarioError, match="gen_lists"):
-            scenario({"unknown": 2}).domains_in(["sni_black"])
+            scenario({"other": 2}).domains_in(["sni_black"])
 
 
 class TestMesanica:
 
     def pool(self, spec: str):
-        sites = scenario({"unknown": 4, "sni_white": 2, "ip_black": 1})
+        sites = scenario({"other": 4, "sni_white": 2, "ip_black": 1})
         return build_pool(sites, parse_groups(spec))
 
     def test_brez_skupin_vzame_ves_nabor(self):
-        sites = scenario({"unknown": 2, "sni_white": 1})
+        sites = scenario({"other": 2, "sni_white": 1})
         assert len(build_pool(sites, None).domains[""]) == 3
 
     def test_ena_skupina_ostane_enakomerna(self):
-        pool = self.pool("unknown")
+        pool = self.pool("other")
         rng = random.Random(0)
         picks = {pool.pick(rng) for _ in range(200)}
-        assert picks == set(pool.domains["unknown"])
+        assert picks == set(pool.domains["other"])
 
     def test_utezi_dolocajo_razmerja(self):
-        pool = self.pool("unknown:80,sni_white:20")
+        pool = self.pool("other:80,sni_white:20")
         rng = random.Random(1234)
         picks = [pool.pick(rng) for _ in range(4000)]
-        share = sum(1 for p in picks if p.startswith("unknown")) / len(picks)
+        share = sum(1 for p in picks if p.startswith("other")) / len(picks)
         assert share == pytest.approx(0.80, abs=0.03)
 
     def test_utez_nic_izpade_iz_nabora(self):
-        pool = self.pool("unknown:1,ip_black:0")
+        pool = self.pool("other:1,ip_black:0")
         assert "ip_black" not in pool.domains
 
     def test_brez_utezi_so_skupine_enakovredne(self):
-        assert self.pool("unknown,sni_white").weights == (1.0, 1.0)
+        assert self.pool("other,sni_white").weights == (1.0, 1.0)
 
     def test_neznana_utez_je_napaka(self):
         with pytest.raises(ScenarioError, match="ni stevilo"):
-            parse_groups("unknown:veliko")
+            parse_groups("other:veliko")
 
     def test_same_nicle_so_napaka(self):
         with pytest.raises(ScenarioError, match="nic"):
-            parse_groups("unknown:0,sni_white:0")
+            parse_groups("other:0,sni_white:0")
 
     def test_negativna_utez_je_napaka(self):
         with pytest.raises(ScenarioError, match="negativne"):
-            parse_groups("unknown:-1")
+            parse_groups("other:-1")
 
 
 def link(byte_count: int = 0) -> dict:
@@ -141,10 +141,10 @@ def cell_run(directory, *, requests: int = 100, duration: float = DURATION,
              proxy_bytes: int | None = None, switch_after: dict | None = None,
              flows: int = 0, node: str = "mitm"):
     rows = metric_rows(requests, duration=duration,
-                       group="sni_black" if blocked else "unknown",
+                       group="sni_black" if blocked else "other",
                        expect_blocked=blocked,
                        failures=int(requests * stopped_share) if blocked else 0)
-    write_cell(directory, rows, meritev="test", postavitev="B0", groups="unknown",
+    write_cell(directory, rows, meritev="test", postavitev="B0", groups="other",
                workers=16, duration_s=duration, warmup_s=warmup)
 
     (directory / "links_before.json").write_text(json.dumps(

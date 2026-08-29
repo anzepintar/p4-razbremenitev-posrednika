@@ -16,7 +16,7 @@ BIG = "/big.bin"
 COMMON = Path("/opt/traffic")
 
 GROUPS = (
-    "ip_black", "ip_white", "sni_black", "sni_white", "content_block", "unknown",
+    "ip_black", "ip_white", "sni_black", "sni_white", "content_block", "other",
 )
 
 BLOCKED_GROUPS = ("ip_black", "sni_black", "content_block")
@@ -47,10 +47,10 @@ class Scenario:
         return sorted(self.sites)
 
     def domains_in(self, groups: list[str]) -> list[str]:
-        unknown = [g for g in groups if g not in GROUPS]
-        if unknown:
+        missing = [g for g in groups if g not in GROUPS]
+        if missing:
             raise ScenarioError(
-                f"skupine '{', '.join(unknown)}' ni; na voljo so {', '.join(GROUPS)}"
+                f"skupine '{', '.join(missing)}' ni; na voljo so {', '.join(GROUPS)}"
             )
         found = sorted(s.domain for s in self.sites.values() if s.group in groups)
         if not found:

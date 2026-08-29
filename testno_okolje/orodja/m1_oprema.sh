@@ -9,7 +9,10 @@ ali je omejitev v resitvi ali v odjemalcu; vse, kar dosezeta A in B, mora biti p
 
 . orodja/lib.sh
 
-CELL_GROUPS=unknown
+CELL_GROUPS=other
 
-search_all C0
-finish
+tek() {
+	search_all C0
+}
+
+run_all tek

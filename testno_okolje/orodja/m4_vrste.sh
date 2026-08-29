@@ -19,22 +19,26 @@ DURATION="${DURATION:-20}"
 WARMUP="${WARMUP:-0}"
 CELL_WORKERS=64
 
-for topo in A0 B0; do
-	echo "== $topo =="
-	start_topo "$topo"
-	BLOCK_FAILED=0
-	for entry in $PROTOCOLS; do
+tek() {
+	local topo entry proto share rate mode
+	for topo in A0 B0; do
 		[ "$BLOCK_FAILED" = 1 ] && break
-		proto="${entry%%:*}"
-		share="${entry##*:}"
-		rate="$(load_rate "$proto")"
-		for mode in $MODES; do
+		echo "== $topo =="
+		start_topo "$topo"
+		for entry in $PROTOCOLS; do
 			[ "$BLOCK_FAILED" = 1 ] && break
-			echo "  -- $proto / $mode pri $rate zahtevah/s --"
-			CELL_GROUPS="$(groups_for "$mode")" CELL_RATE_RPS="$rate" \
-				cell "$topo" "$RESULTS/$topo/$proto/$mode" "$share" || true
+			proto="${entry%%:*}"
+			share="${entry##*:}"
+			rate="$(load_rate "$proto")"
+			for mode in $MODES; do
+				[ "$BLOCK_FAILED" = 1 ] && break
+				echo "  -- $proto / $mode pri $rate zahtevah/s --"
+				CELL_GROUPS="$mode" CELL_RATE_RPS="$rate" \
+					cell "$topo" "$RESULTS/$topo/$proto/$mode" "$share" || true
+			done
 		done
+		cleanup
 	done
-	cleanup
-done
-finish
+}
+
+run_all tek

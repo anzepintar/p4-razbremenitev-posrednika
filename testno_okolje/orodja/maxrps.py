@@ -18,13 +18,18 @@ def read(directory: str | Path) -> int | None:
     return json.loads(path.read_text(encoding="utf-8")).get("max_rps")
 
 
+def read_all(directories: list[str | Path]) -> list[int]:
+    found = [read(directory) for directory in directories]
+    return [value for value in found if value is not None]
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        print("uporaba: maxrps.py <imenik z max.json>", file=sys.stderr)
+        print("uporaba: maxrps.py <imenik z max.json> ...", file=sys.stderr)
         return 2
-    found = read(argv[0])
-    print("" if found is None else found)
+    found = read_all(argv)
+    print(min(found) if found else "")
     return 0
 
 

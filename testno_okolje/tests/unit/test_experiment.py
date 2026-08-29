@@ -6,7 +6,7 @@ import yaml
 import experiment as exp
 
 BASE = {
-    "domains": {"total": 10, "groups": {"ip_black": 2, "sni_black": 2, "unknown": 6}},
+    "domains": {"total": 10, "groups": {"ip_black": 2, "sni_black": 2, "other": 6}},
     "server_ips": {"default": "10.0.2.10", "ip_black": "10.0.2.11",
                    "ip_white": "10.0.2.12"},
     "protocols": {"h2": 0.0, "h3": 1.0},
@@ -49,7 +49,7 @@ class TestLoad:
     def test_naslov_skupine(self, tmp_path):
         settings = exp.load(config(tmp_path))
         assert settings.ip_for("ip_black") == "10.0.2.11"
-        assert settings.ip_for("unknown") == "10.0.2.10"
+        assert settings.ip_for("other") == "10.0.2.10"
 
 
 class TestNacini:
@@ -71,20 +71,23 @@ class TestNacini:
         assert exp.load(path).modes == ["other", "ip_black", "sni_black"]
 
     def test_izhodisce_ne_potrebuje_skupine(self, tmp_path):
-        assert "other" not in exp.load(config(tmp_path)).groups
+        settings = exp.load(config(tmp_path, domains={
+            "total": 10, "groups": {"ip_black": 2}}, modes=["other", "ip_black"]))
+        assert "other" not in settings.groups
+        assert settings.modes == ["other", "ip_black"]
 
 
 class TestAssign:
     def test_vsaka_skupina_dobi_svoje_stevilo(self, tmp_path):
         settings = exp.load(config(tmp_path))
         data = exp.build(settings, testset=testset(tmp_path, 10))
-        assert data["counts"] == {"ip_black": 2, "sni_black": 2, "unknown": 6}
+        assert data["counts"] == {"ip_black": 2, "sni_black": 2, "other": 6}
 
-    def test_presezek_pade_v_unknown(self, tmp_path):
+    def test_presezek_pade_v_other(self, tmp_path):
         settings = exp.load(config(tmp_path, domains={
             "total": 10, "groups": {"ip_black": 2}}, modes=["other", "ip_black"]))
         data = exp.build(settings, testset=testset(tmp_path, 10))
-        assert data["counts"] == {"ip_black": 2, "unknown": 8}
+        assert data["counts"] == {"ip_black": 2, "other": 8}
 
     def test_premalo_domen_je_napaka(self, tmp_path):
         settings = exp.load(config(tmp_path))
@@ -114,9 +117,9 @@ class TestAssign:
         root = testset(tmp_path, 10)
         modes = ["other", "ip_black"]
         few = exp.build(exp.load(config(tmp_path, modes=modes, domains={
-            "total": 10, "groups": {"ip_black": 2, "unknown": 8}})), testset=root)
+            "total": 10, "groups": {"ip_black": 2, "other": 8}})), testset=root)
         many = exp.build(exp.load(config(tmp_path, modes=modes, domains={
-            "total": 10, "groups": {"ip_black": 5, "unknown": 5}})), testset=root)
+            "total": 10, "groups": {"ip_black": 5, "other": 5}})), testset=root)
         assert few["counts"]["ip_black"] == 2
         assert many["counts"]["ip_black"] == 5
 

@@ -1,13 +1,13 @@
 # Domene, ki jih stikalo zavrze ob ClientHello, posrednik pa v prometu QUIC.
 # Nastalo iz experiment.yml (skupina sni_black) - ne urejaj rocno.
 
-actfourscreenplays.com
-career.vt.edu
-dance.com
-heatherdale.com
-lynneknowlton.com
-milosierdzie.pl
-nateleung.com
-player.me
-uniel.ru
-whatislive.de
+bnntv.org
+dreamhost.com
+geograph.org.uk
+hdretrovision.com
+ihomeschoolnetwork.com
+personal-growth-programs.com
+stopsmartmeters.org
+thmeythmey.com
+uncommonchick.com
+worldofwarplanes.ru

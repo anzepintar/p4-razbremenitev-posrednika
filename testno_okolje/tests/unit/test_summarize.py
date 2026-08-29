@@ -19,8 +19,8 @@ def row(group, *, expect_blocked, exitcode=0, blocked=False, http_code=200,
 
 class TestByGroup:
     def test_uspela_zahteva_v_dovoljeni_skupini_je_pricakovana(self):
-        out = summarize.by_group([row("unknown", expect_blocked=False)])
-        assert out["unknown"]["as_expected_pct"] == 100.0
+        out = summarize.by_group([row("other", expect_blocked=False)])
+        assert out["other"]["as_expected_pct"] == 100.0
 
     def test_iztek_v_blokirani_skupini_je_pricakovan(self):
         rows = [row("sni_black", expect_blocked=True, exitcode=28, http_code=0)]
@@ -45,12 +45,12 @@ class TestByGroup:
 
     def test_skupine_se_stejejo_loceno(self):
         rows = [
-            row("unknown", expect_blocked=False),
-            row("unknown", expect_blocked=False),
+            row("other", expect_blocked=False),
+            row("other", expect_blocked=False),
             row("sni_black", expect_blocked=True, exitcode=28, http_code=0),
         ]
         out = summarize.by_group(rows)
-        assert out["unknown"]["requests"] == 2
+        assert out["other"]["requests"] == 2
         assert out["sni_black"]["requests"] == 1
 
     def test_delez_je_povprecje_in_ne_vse_ali_nic(self):
@@ -82,6 +82,6 @@ class TestAsExpectedPct:
         assert summarize.as_expected_pct(rows) == 50.0
 
     def test_dovoljena_skupina_se_meri_obrnjeno(self):
-        rows = [row("unknown", expect_blocked=False),
-                row("unknown", expect_blocked=False, exitcode=28, http_code=0)]
+        rows = [row("other", expect_blocked=False),
+                row("other", expect_blocked=False, exitcode=28, http_code=0)]
         assert summarize.as_expected_pct(rows) == 50.0

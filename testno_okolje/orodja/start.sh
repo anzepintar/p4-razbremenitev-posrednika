@@ -234,12 +234,12 @@ fi
 
 if [ "$HAS_SERVER" = 1 ]; then
 	read -r PROBE_DOMAIN PROBE_IP _ <<<"$(awk '
-		$3 == "unknown" { print; found = 1; exit }
+		$3 == "other" { print; found = 1; exit }
 		$3 == "sni_white" || $3 == "ip_white" { if (!fallback) fallback = $0 }
 		END { if (!found && fallback) print fallback }
 	' "$OUT/warmup.txt")"
 	if [ -z "${PROBE_DOMAIN:-}" ]; then
-		echo "start.sh: v razdelitvi ni domene iz skupine unknown, sni_white ali ip_white," >&2
+		echo "start.sh: v razdelitvi ni domene iz skupine other, sni_white ali ip_white," >&2
 		echo "  zato kontrolna zahteva ne more vrniti 200; popravi experiment.yml" >&2
 		echo "  in pozeni ./orodja/gen_lists.py" >&2
 		exit 1

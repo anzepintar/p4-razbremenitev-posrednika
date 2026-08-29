@@ -123,7 +123,7 @@ def assign(experiment: Experiment, domains: list[str]) -> dict[str, str]:
             result[domain] = group
         position += count
     for domain in domains[position:]:
-        result[domain] = "unknown"
+        result[domain] = "other"
     return result
 
 

@@ -6,7 +6,7 @@ domains:
     sni_black: 10
     sni_white: 10
     content_block: 10
-    unknown: 50
+    other: 50
 
 server_ips:
   default: 10.0.2.10

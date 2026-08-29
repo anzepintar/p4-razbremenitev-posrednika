@@ -20,25 +20,29 @@ CELL_WORKERS=64
 MECHANISMS="${MECHANISMS:-ip_white sni_white}"
 SHARES="${SHARES:-0 25 50 75 100}"
 
-for topo in A0 B0; do
-	echo "== $topo =="
-	start_topo "$topo"
-	BLOCK_FAILED=0
-	for entry in $PROTOCOLS; do
+tek() {
+	local topo entry proto share rate mech pct
+	for topo in A0 B0; do
 		[ "$BLOCK_FAILED" = 1 ] && break
-		proto="${entry%%:*}"
-		share="${entry##*:}"
-		rate="$(load_rate "$proto")"
-		for mech in $MECHANISMS; do
+		echo "== $topo =="
+		start_topo "$topo"
+		for entry in $PROTOCOLS; do
 			[ "$BLOCK_FAILED" = 1 ] && break
-			for pct in $SHARES; do
+			proto="${entry%%:*}"
+			share="${entry##*:}"
+			rate="$(load_rate "$proto")"
+			for mech in $MECHANISMS; do
 				[ "$BLOCK_FAILED" = 1 ] && break
-				echo "  -- $proto / $mech / $pct % obhoda --"
-				CELL_GROUPS="unknown:$((100 - pct)),$mech:$pct" CELL_RATE_RPS="$rate" \
-					cell "$topo" "$RESULTS/$topo/$proto/${mech}_p${pct}" "$share" || true
+				for pct in $SHARES; do
+					[ "$BLOCK_FAILED" = 1 ] && break
+					echo "  -- $proto / $mech / $pct % obhoda --"
+					CELL_GROUPS="other:$((100 - pct)),$mech:$pct" CELL_RATE_RPS="$rate" \
+						cell "$topo" "$RESULTS/$topo/$proto/${mech}_p${pct}" "$share" || true
+				done
 			done
 		done
+		cleanup
 	done
-	cleanup
-done
-finish
+}
+
+run_all tek

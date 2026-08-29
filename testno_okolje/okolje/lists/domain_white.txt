@@ -1,13 +1,13 @@
 # Domene, ki jih posrednik le tunelira - brez desifriranja in brez potrdila.
 # Nastalo iz experiment.yml (skupina sni_white) - ne urejaj rocno.
 
-aabb.org
-biogeografia.netau.net
-embeddedartists.com
-glide.me
-mathoverflow.net
-meted.ucar.edu
-nablacosmetics.com
-nlr.nl
-otterndorf.de
-skillroads.com
+blog.pepecar.com
+glasgowfilm.org
+hartfordhealthcare.org
+jung.de
+kenchickenmalang.com
+lilwaynehq.com
+quilpue.cl
+shmp.qc.ca
+shopvote.de
+wgmods.net

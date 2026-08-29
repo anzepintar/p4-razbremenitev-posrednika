@@ -64,10 +64,9 @@ Razdelitev je determinstična (sha1 imena domene). Po vsaki spremembi poženi
 | črni domenski promet | `sni_black` | `domain_black.txt` | posrednik (`--block-list`) | stikalo, ob `ClientHello` oziroma `Initial` |
 | beli domenski promet | `sni_white` | `domain_white.txt` | posrednik tunelira | TCP: posrednik tunelira; QUIC: stikalo, mimo posrednika |
 | promet, blokiran po vsebini | `content_block` | `content_rules.txt` | posrednik, po dešifriranju | posrednik, po dešifriranju |
-| ostali promet | `unknown` | — | dešifrira se | dešifrira se |
+| ostali promet | `other` | — | dešifrira se | dešifrira se |
 
-Ta imena so v veljavi povsod, na grafih, v tabelah in v besedilu. Način `other` v `modes` je
-ista skupina kot `unknown`, torej ostali promet.
+Ta imena so v veljavi povsod, na grafih, v tabelah in v besedilu.
 
 Dodatek `content_block.py` je privzeto vklopljen, ker ga meritev potrebuje; izklopi ga
 `--no-content-block`. Pri `object_kb > 0` odjemalec namesto dokumenta strani potegne
@@ -94,14 +93,24 @@ Ime strežnika iz prometa TCP razčleni razčlenjevalnik v `okolje/switch/usmerj
 | `./orodja/m5_zmogljivost.sh` | `A0`, `B0` | največja hitrost za skupine, ki gredo lahko čez |
 | `./orodja/m6_prag.sh` | `A0`, `B0` | delež obhoda, pri katerem je stikalo smiselno |
 
+Vsaka meritev teče `RUNS` krat, privzeto petkrat. Tek `N` piše v `okolje/out/<ime>/tek<N>/`,
+zaključen tek pa označi `koncano.json`. Ponovni zagon programa označene teke preskoči in
+nadaljuje pri prvem neoznačenem, zato prekinjena meritev ne začne od začetka. Nedokončan tek
+se ponovi v celoti. Posamezen tek ponoviš tako, da izbrišeš njegov imenik.
+
 Vsak program zapiše v `okolje/out/<ime>/` sliko v `graf/`, `results.md`, `veljavnost.md` in
-`results.json`; nariše jih `./orodja/plot.py okolje/out/<ime>`, ki ga pokličejo sami.
+`results.json`; nariše jih `./orodja/plot.py okolje/out/<ime>`, ki ga pokličejo sami. Vsaka
+vrednost je povprečje čez teke. Na grafih so ob njej prečke 95-odstotnega intervala zaupanja,
+ki ga po Studentovi porazdelitvi izračuna `orodja/stats.py`. V `results.json` sta poleg
+povprečja še `ci95` in surove vrednosti vseh tekov.
+
 `m1`, `m2` in `m5` iščejo največjo vzdržno hitrost brez izgube (podvajanje, nato bisekcija,
 na koncu potrditveni tek), `m4` in `m6` pa merita pri stalni obremenitvi `RATE_H2` oziroma
 `RATE_H3`. Ta je izbrana pod maksimumoma iz `m2`. Če ni, program to izpiše kot opozorilo.
 
 | spremenljivka | privzeto | kaj je |
 | :--- | :--- | :--- |
+| `RUNS` | 5 | kolikokrat se meritev ponovi |
 | `DURATION`, `WARMUP` | 20, 0 | trajanje celice in odbitek na začetku v sekundah |
 | `WARMUP_REQUESTS` | 100, v `m4` in `m6` 300 | zahteve ogrevalnega teka pred celico |
 | `SEARCH_START`, `SEARCH_MAX`, `SEARCH_TOLERANCE` | 8, 512, 5 | meji iskanja in razmik bisekcije |
@@ -157,7 +166,7 @@ ki delujejo v `C1` in ne v `B1`), `results.json`, `nabor.json` in
 
 | nivo | kaj potrebuje | koliko |
 | :--- | :--- | ---: |
-| `unit` | samo Python | 181 |
+| `unit` | samo Python | 191 |
 | `integration` | bere `usmerjanje.p4`, za QUIC še sliko `p4-switch` | 27 |
 | `e2e` | tekočo postavitev `B0` | 31 |
 
@@ -171,7 +180,7 @@ docker run --rm -v "$PWD/tests/data:/out" --entrypoint sh mitmproxy-quic:latest 
 ```
 
 Ni pokrito: postavitvi `A0` in `B1`, risanje v `plot.py`, `steer.py` proti pravemu stikalu
-in brskalnik.
+in brskalnik. Zbiranje tekov in interval zaupanja sta pokrita v `test_stats.py`.
 
 ## Ročno preverjanje
 
