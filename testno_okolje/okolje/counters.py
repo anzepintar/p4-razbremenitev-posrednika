@@ -1,4 +1,4 @@
-"""Imena stevcev stikala, prebrana iz usmerjanje.p4.
+"""Imena stevcev stikala, prebrana iz krmiljenje.p4.
 
 Stevci so v programu P4 oznaceni z zaporedno stevilko, nadzorna ravnina in
 obdelava rezultatov pa jih naslavljata po imenu. Ce bi se seznama razsla, bi se
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-P4 = Path(__file__).resolve().parent / "switch" / "usmerjanje.p4"
+P4 = Path(__file__).resolve().parent / "switch" / "krmiljenje.p4"
 
 PATTERN = re.compile(r"const\s+bit<32>\s+STAT_(\w+)\s*=\s*(\d+)")
 

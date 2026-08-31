@@ -28,7 +28,7 @@ if [ ! -f "$MODULE" ]; then
 fi
 
 mkdir -p "$SHARED"
-cp "$BUILD"/usmerjanje.json "$BUILD"/usmerjanje.p4info.txtpb "$SHARED"/
+cp "$BUILD"/krmiljenje.json "$BUILD"/krmiljenje.p4info.txtpb "$SHARED"/
 
 echo "start_switch: ${PORTS[*]}"
 exec simple_switch_grpc --device-id 0 --max-port-count 8 \

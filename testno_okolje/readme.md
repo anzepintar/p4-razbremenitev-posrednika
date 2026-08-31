@@ -37,7 +37,7 @@ Potrebuješ `docker`, `containerlab` in vejo mitmproxy; privzeto se išče v
 Sliki `mitmproxy-quic:latest` in `browser:latest` ter `bmv2-perf:1.15.5-modules` se zgradijo
 le, če jih še ni, zato je po spremembi veje mitmproxy oziroma `okolje/client/Dockerfile`
 potreben `docker rmi mitmproxy-quic:latest browser:latest && ./orodja/build.sh`. Po spremembi
-`quic_sni.cpp`, `quic_extern.cpp` ali `usmerjanje.p4` zadošča `./orodja/build.sh`.
+`quic_sni.cpp`, `quic_extern.cpp` ali `krmiljenje.p4` zadošča `./orodja/build.sh`.
 
 ## Nastavitev
 
@@ -74,11 +74,11 @@ Dodatek `content_block.py` je privzeto vklopljen, ker ga meritev potrebuje; izkl
 
 ## Stikalo
 
-Ime strežnika iz prometa TCP razčleni razčlenjevalnik v `okolje/switch/usmerjanje.p4`, iz
+Ime strežnika iz prometa TCP razčleni razčlenjevalnik v `okolje/switch/krmiljenje.p4`, iz
 šifriranega paketa `Initial` pa ga prebere zunanja funkcija bmv2
 `okolje/switch/quic_sni.cpp`; obe poti pišeta v `meta.sni` in vprašata isto tabelo
 `sni_policy`. Modul se naloži z `--load-modules` v `start_switch.sh`, zato je potrebna slika
-`bmv2-perf:1.15.5-modules`, prevedena z `-rdynamic`. Meje so konstante v `usmerjanje.p4`:
+`bmv2-perf:1.15.5-modules`, prevedena z `-rdynamic`. Meje so konstante v `krmiljenje.p4`:
 `MAX_SNI_NAME` 63, `MAX_EXT_BODY` 256, `QUIC_TIMEOUT_MS` 60000, `QUIC_MAX_FLOWS` 65536 in
 `QUIC_MAX_CRYPTO` 16384.
 
@@ -167,7 +167,7 @@ ki delujejo v `C1` in ne v `B1`), `results.json`, `nabor.json` in
 | nivo | kaj potrebuje | koliko |
 | :--- | :--- | ---: |
 | `unit` | samo Python | 191 |
-| `integration` | bere `usmerjanje.p4`, za QUIC še sliko `p4-switch` | 27 |
+| `integration` | bere `krmiljenje.p4`, za QUIC še sliko `p4-switch` | 27 |
 | `e2e` | tekočo postavitev `B0` | 31 |
 
 ```sh

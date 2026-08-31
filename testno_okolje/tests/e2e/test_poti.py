@@ -173,7 +173,7 @@ class TestPovratniQuic:
         curl(benign, "h3", timeout=8)
         after = counters()
         assert after["denied"] - before["denied"] <= noise, (
-            "povratni QUIC se zavraca - preveri pogoj srcPort v usmerjanje.p4"
+            "povratni QUIC se zavraca - preveri pogoj srcPort v krmiljenje.p4"
         )
 
     def test_datagrami_pridejo_do_odjemalca(self, lab, benign):

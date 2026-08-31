@@ -239,7 +239,7 @@ class TestPonovitev:
 
 class TestIPv4:
     def test_curl_vztraja_pri_ipv4(self):
-        """Postavitev je v celoti IPv4: usmerjanje.p4 zavrze vse, kar ni IPv4."""
+        """Postavitev je v celoti IPv4: krmiljenje.p4 zavrze vse, kar ni IPv4."""
         argv = verdicts.curl_argv("https://a.com/", "h2", connect_timeout=5, max_time=20)
         assert "--ipv4" in argv
 
